@@ -23,8 +23,7 @@ class TimerScope(object):
     def __exit__(self, _type, _value, _traceback):
         end_time = time.monotonic()
         duration = end_time - self._start_time
-        logger.info(
-            f'TimerScope:{self._name},{self._start_time},{end_time},{duration}')
+
         if self._csv_log:
             self._csv_log.writerow(
                 {'scope': self._name,
