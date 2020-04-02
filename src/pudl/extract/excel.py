@@ -194,12 +194,12 @@ class GenericExtractor(object):
                         newdata = self._extract_page(page, yr)
                         df = df.append(newdata, sort=True, ignore_index=True)
 
-            # After all years are loaded, consolidate missing columns
-            missing_cols = set(self._metadata.get_all_columns(
-                page)).difference(df.columns)
-            empty_cols = pd.DataFrame(columns=missing_cols)
-            df = pd.concat([df, empty_cols], sort=True)
-            raw_dfs[page] = self.process_final_page(df, page)
+                # After all years are loaded, consolidate missing columns
+                missing_cols = set(self._metadata.get_all_columns(
+                    page)).difference(df.columns)
+                empty_cols = pd.DataFrame(columns=missing_cols)
+                df = pd.concat([df, empty_cols], sort=True)
+                raw_dfs[page] = self.process_final_page(df, page)
         return raw_dfs
 
     def _extract_page(self, page, yr):
