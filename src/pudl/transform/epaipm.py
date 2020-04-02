@@ -5,6 +5,7 @@ import logging
 import pandas as pd
 
 import pudl.constants as pc
+import pudl.timers
 from pudl.helpers import simplify_columns
 
 logger = logging.getLogger(__name__)
@@ -154,6 +155,7 @@ def plant_region_map(epaipm_dfs, epaipm_transformed_dfs):
     return epaipm_transformed_dfs
 
 
+@pudl.timers.timed_as('epaipm/transform')
 def transform(epaipm_raw_dfs, epaipm_tables=pc.epaipm_pudl_tables):
     """
     Transform EPA IPM DataFrames.

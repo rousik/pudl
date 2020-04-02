@@ -10,6 +10,7 @@ import pandas as pd
 import pudl
 import pudl.constants as pc
 import pudl.workspace.datastore as datastore
+from pudl import timers
 
 logger = logging.getLogger(__name__)
 
@@ -180,26 +181,18 @@ class GenericExtractor(object):
             return {}
 
         raw_dfs = {}
-        for page in self._metadata.get_all_pages():
-            if page in self.BLACKLISTED_PAGES:
-                logger.info(f'Skipping blacklisted page {page}.')
-                continue
-            df = pd.DataFrame()
-            for yr in years:
-                logger.info(
-                    f'Loading dataframe for {self._dataset_name} {page} {yr}')
-                newdata = pd.read_excel(
-                    self._load_excel_file(yr, page),
-                    sheet_name=self._metadata.get_sheet_name(yr, page),
-                    skiprows=self._metadata.get_skiprows(yr, page),
-                    dtype=self.get_dtypes(yr, page))
-
-                newdata = pudl.helpers.simplify_columns(newdata)
-                newdata = self.process_raw(newdata, yr, page)
-                newdata = newdata.rename(
-                    columns=self._metadata.get_column_map(yr, page))
-                newdata = self.process_renamed(newdata, yr, page)
-                df = df.append(newdata, sort=True, ignore_index=True)
+        with timers.TimerScope(f"{self._metadata.get_dataset_name()}/extract") as tscope:
+            for page in self._metadata.get_all_pages():
+                if page in self.BLACKLISTED_PAGES:
+                    logger.info(f'Skipping blacklisted page {page}.')
+                    continue
+                df = pd.DataFrame()
+                for yr in years:
+                    logger.info(
+                        f'Loading dataframe for {self._dataset_name} {page} {yr}')
+                    with tscope.sub_timer(f'{page}/{yr}'):
+                        newdata = self._extract_page(page, yr)
+                        df = df.append(newdata, sort=True, ignore_index=True)
 
             # After all years are loaded, consolidate missing columns
             missing_cols = set(self._metadata.get_all_columns(
@@ -208,6 +201,20 @@ class GenericExtractor(object):
             df = pd.concat([df, empty_cols], sort=True)
             raw_dfs[page] = self.process_final_page(df, page)
         return raw_dfs
+
+    def _extract_page(self, page, yr):
+        """Reads pandas DataFrame for given page and year."""
+        newdata = pd.read_excel(
+            self._load_excel_file(yr, page),
+            sheet_name=self._metadata.get_sheet_name(yr, page),
+            skiprows=self._metadata.get_skiprows(yr, page),
+            dtype=self.get_dtypes(yr, page))
+        newdata = pudl.helpers.simplify_columns(newdata)
+        newdata = self.process_raw(newdata, yr, page)
+        newdata = newdata.rename(
+            columns=self._metadata.get_column_map(yr, page))
+        newdata = self.process_renamed(newdata, yr, page)
+        return newdata
 
     def _load_excel_file(self, year, page):
         """Returns ExcelFile object corresponding to given (year, page).

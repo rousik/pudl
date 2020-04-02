@@ -199,6 +199,7 @@ def correct_gross_load_mw(df):
     return df
 
 
+@pudl.timers.timed_as('epacems/transform')
 def transform(epacems_raw_dfs, datapkg_dir):
     """
     Transform EPA CEMS hourly data for use in datapackage export.

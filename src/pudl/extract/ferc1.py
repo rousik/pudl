@@ -558,6 +558,7 @@ def get_ferc1_meta(ferc1_engine):
     return ferc1_meta
 
 
+@pudl.timers.timed_as('ferc1/extract')
 def extract(ferc1_tables=pc.pudl_tables['ferc1'],
             ferc1_years=pc.working_years['ferc1'],
             pudl_settings=None):

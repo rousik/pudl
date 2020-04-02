@@ -1145,6 +1145,7 @@ def accumulated_depreciation(ferc1_raw_dfs, ferc1_transformed_dfs):
     return ferc1_transformed_dfs
 
 
+@pudl.timers.timed_as('ferc1/transform')
 def transform(ferc1_raw_dfs, ferc1_tables=pc.pudl_tables['ferc1']):
     """Transforms FERC 1.
 
@@ -1178,8 +1179,9 @@ def transform(ferc1_raw_dfs, ferc1_tables=pc.pudl_tables['ferc1']):
             logger.info(
                 f"Transforming raw FERC Form 1 dataframe for "
                 f"loading into {table}")
-            ferc1_transform_functions[table](ferc1_raw_dfs,
-                                             ferc1_transformed_dfs)
+            with pudl.timers.TimerScope(f'ferc1/transform/{table}'):
+                ferc1_transform_functions[table](ferc1_raw_dfs,
+                                                 ferc1_transformed_dfs)
 
     # convert types..
     ferc1_transformed_dfs = pudl.helpers.convert_dfs_dict_dtypes(

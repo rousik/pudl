@@ -25,6 +25,7 @@ import coloredlogs
 import yaml
 
 import pudl
+from pudl import timers
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,9 @@ def parse_command_line(argv):
         will fail. Either the datapkg_bundle_name in the settings_file needs to
         be unique or you need to include --clobber""",
         default=False)
+    parser.add_argument(
+        '--timing_log',
+        help="""Write ETL timing log into this file in CSV format.""")
     arguments = parser.parse_args(argv[1:])
     return arguments
 
@@ -69,6 +73,9 @@ def main():
     args = parse_command_line(sys.argv)
     with pathlib.Path(args.settings_file).open() as f:
         script_settings = yaml.safe_load(f)
+
+    if args.timing_log:
+        timers.TimerScope.enable_csv_logging(args.timing_log)
 
     try:
         pudl_in = script_settings["pudl_in"]

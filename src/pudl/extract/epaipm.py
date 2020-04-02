@@ -16,6 +16,7 @@ from pathlib import Path
 import pandas as pd
 
 import pudl.constants as pc
+import pudl.timers
 import pudl.workspace.datastore as datastore
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,7 @@ def create_dfs_epaipm(files, data_dir):
     return epaipm_dfs
 
 
+@pudl.timers.timed_as('epaipm/extract')
 def extract(epaipm_tables, data_dir):
     """Extracts data from IPM files.
 

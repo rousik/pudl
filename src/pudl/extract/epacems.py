@@ -7,6 +7,7 @@ import logging
 
 import pandas as pd
 
+import pudl
 import pudl.constants as pc
 import pudl.workspace.datastore as datastore
 
@@ -39,6 +40,7 @@ def read_cems_csv(filename):
     return df
 
 
+@pudl.timers.timed_as('epacems/extract')
 def extract(epacems_years, states, data_dir):
     """
     Coordinate the extraction of EPA CEMS hourly DataFrames.

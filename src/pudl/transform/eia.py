@@ -807,6 +807,7 @@ def _restrict_years(df,
     return df
 
 
+@pudl.timers.timed_as('eia/transform')
 def transform(eia_transformed_dfs,
               eia923_years=pc.working_years['eia923'],
               eia860_years=pc.working_years['eia860'],

@@ -534,6 +534,7 @@ def get_lost_utils_eia(pudl_engine):
     return lost_utils_eia
 
 
+@pudl.timers.timed_as('ferc1_eia/glue')
 def glue(ferc1=False, eia=False):
     """Generates a dictionary of dataframes for glue tables between FERC1, EIA.
 

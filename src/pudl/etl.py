@@ -26,6 +26,7 @@ import pandas as pd
 
 import pudl
 import pudl.constants as pc
+import pudl.timers as timers
 
 logger = logging.getLogger(__name__)
 
@@ -202,15 +203,19 @@ def _etl_eia(etl_params, datapkg_dir, pudl_settings):
 
     # Extract EIA forms 923, 860
     data_dir = pudl_settings["data_dir"]
+    eia923_transformed_dfs = None
+    eia860_transformed_dfs = None
     eia923_raw_dfs = pudl.extract.eia923.Extractor(
         data_dir).extract(eia923_years)
     eia860_raw_dfs = pudl.extract.eia860.Extractor(
         data_dir).extract(eia860_years)
     # Transform EIA forms 923, 860
-    eia923_transformed_dfs = pudl.transform.eia923.transform(
-        eia923_raw_dfs, eia923_tables=eia923_tables)
-    eia860_transformed_dfs = pudl.transform.eia860.transform(
-        eia860_raw_dfs, eia860_tables=eia860_tables)
+    with timers.TimerScope('eia923/transform'):
+        eia923_transformed_dfs = pudl.transform.eia923.transform(
+            eia923_raw_dfs, eia923_tables=eia923_tables)
+    with timers.TimerScope('eia860/transform'):
+        eia860_transformed_dfs = pudl.transform.eia860.transform(
+            eia860_raw_dfs, eia860_tables=eia860_tables)
     # create an eia transformed dfs dictionary
     eia_transformed_dfs = eia860_transformed_dfs.copy()
     eia_transformed_dfs.update(eia923_transformed_dfs.copy())

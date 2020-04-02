@@ -29,6 +29,8 @@ import pudl.output.eia923
 import pudl.output.ferc1
 import pudl.output.glue
 import pudl.output.pudltabl
+# Function and scope timers
+import pudl.timers
 # Transformation functions, organized by data source:
 import pudl.transform.eia
 import pudl.transform.eia860
