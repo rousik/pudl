@@ -535,6 +535,7 @@ def fuel_receipts_costs(eia923_dfs, eia923_transformed_dfs):
     return eia923_transformed_dfs
 
 
+@pudl.timers.timed_as('eia923/transform')
 def transform(eia923_raw_dfs, eia923_tables=pc.eia923_pudl_tables):
     """Transforms all the EIA 923 tables.
 
