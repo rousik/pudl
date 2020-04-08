@@ -142,9 +142,10 @@ class GenericExtractor(object):
               files from disk (passed to datastore).
         """
         self._data_dir = data_dir
-        if not self.METADATA:
+        self._metadata = metadata or self.METADATA
+        logger.info(f'Using metadata for {self._metadata.get_dataset_name()}')
+        if not self._metadata:
             raise NotImplementedError('self.METADATA must be set.')
-        self._metadata = self.METADATA
         self._dataset_name = self._metadata.get_dataset_name()
         self._file_cache = {}
 
