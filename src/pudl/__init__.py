@@ -38,6 +38,8 @@ import pudl.transform.epaipm
 import pudl.transform.ferc1
 # Data validation tools and test cases:
 import pudl.validate
+# Workflow management
+import pudl.workflow.task
 # Deployed data & workspace management
 import pudl.workspace.datastore
 import pudl.workspace.setup  # noqa: F401 WTF is this showing up as unused?

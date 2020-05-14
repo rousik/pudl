@@ -7,33 +7,29 @@ import pandas as pd
 
 import pudl
 import pudl.constants as pc
+import pudl.workflow.task
+from pudl.workflow.task import Registry, fq_name, transforms
+from pudl.worklfow.task import transforms_many, transforms_single
 
 logger = logging.getLogger(__name__)
 
 
-def ownership(eia860_dfs, eia860_transformed_dfs):
-    """
-    Pulls and transforms the ownership table.
+# TODO: we should just add _eia860 to all of the transformed tables
+# ownership
+# plants
+# boiler_generator_assn
+# utilities
 
-    Args:
-        eia860_dfs (dict): Each entry in this dictionary of DataFrame objects
-            corresponds to a page from the EIA860 form, as reported in the
-            Excel spreadsheets they distribute
-        eia860_transformed_dfs (dict): A dictionary of DataFrame objects in
-            which pages from EIA860 form (keys) correspond to normalized
-            DataFrames of values from that page (values)
+@transforms('eia860/ownership')
+def ownership(o_df):
+    """
+    Transforms the ownership table.
 
     Returns:
-        dict: eia860_transformed_dfs, a dictionary of DataFrame objects in
-        which pages from EIA860 form (keys) correspond to normalized
-        DataFrames of values from that page (values)
-
+        DataFrame: ownership_eia860 dataframe.
     """
-    o_df = (
-        eia860_dfs['ownership'].copy()
-        .pipe(pudl.helpers.fix_eia_na)
-        .pipe(pudl.helpers.convert_to_date)
-    )
+    o_df = o_df.pipe(pudl.helpers.fix_eia_na).pipe(
+        pudl.helpers.convert_to_date)
 
     # The fix we're making here is only known to be valid for 2011 -- if we
     # get older data... then we need to to revisit the cleaning function and
@@ -58,13 +54,17 @@ def ownership(eia860_dfs, eia860_transformed_dfs):
             "owner_state": pd.StringDtype()
         })
     )
-
-    eia860_transformed_dfs['ownership_eia860'] = o_df
-
-    return eia860_transformed_dfs
+    return o_df
 
 
-def generators(eia860_dfs, eia860_transformed_dfs):
+# @transforms(raw=eia860/generator_proposed, eia860/generator_existing, eia860/generator_retired,
+# output=eia860/generators_eia860)
+@transforms_many([
+    'eia860/generator_proposed',
+    'eia860/generator_existing',
+    'eia860/generator_retired'],
+    'eia860/generators_eia860')
+def generators(gp_df, ge_df, gr_df):
     """
     Pulls and transforms the generators table.
 
@@ -94,9 +94,6 @@ def generators(eia860_dfs, eia860_transformed_dfs):
     # them all together into a single big table, with a column that indicates
     # which one of these tables the data came from, since they all have almost
     # exactly the same structure
-    gp_df = eia860_dfs['generator_proposed'].copy()
-    ge_df = eia860_dfs['generator_existing'].copy()
-    gr_df = eia860_dfs['generator_retired'].copy()
     gp_df['operational_status'] = 'proposed'
     ge_df['operational_status'] = 'existing'
     gr_df['operational_status'] = 'retired'
@@ -202,13 +199,11 @@ def generators(eia860_dfs, eia860_transformed_dfs):
         }).
         pipe(pudl.helpers.convert_to_date)
     )
-
-    eia860_transformed_dfs['generators_eia860'] = gens_df
-
-    return eia860_transformed_dfs
+    return gens_df
 
 
-def plants(eia860_dfs, eia860_transformed_dfs):
+@transforms('eia860/plants')
+def plants(p_df):
     """
     Pulls and transforms the plants table.
 
@@ -234,8 +229,7 @@ def plants(eia860_dfs, eia860_transformed_dfs):
     """
     # Populating the 'plants_eia860' table
     p_df = (
-        eia860_dfs['plant'].copy()
-        .pipe(pudl.helpers.fix_eia_na)
+        p_df.pipe(pudl.helpers.fix_eia_na)
         .astype({"zip_code": str})
         .drop("iso_rto", axis="columns")
     )
@@ -297,13 +291,11 @@ def plants(eia860_dfs, eia860_transformed_dfs):
         })
         .pipe(pudl.helpers.convert_to_date)
     )
-
-    eia860_transformed_dfs['plants_eia860'] = p_df
-
-    return eia860_transformed_dfs
+    return p_df
 
 
-def boiler_generator_assn(eia860_dfs, eia860_transformed_dfs):
+@transforms('eia860/boiler_generator_assn')
+def boiler_generator_assn(b_g_df):
     """
     Pulls and transforms the boilder generator association table.
 
@@ -321,9 +313,6 @@ def boiler_generator_assn(eia860_dfs, eia860_transformed_dfs):
         DataFrames of values from that page (values)
 
     """
-    # Populating the 'generators_eia860' table
-    b_g_df = eia860_dfs['boiler_generator_assn'].copy()
-
     b_g_cols = ['report_year',
                 'utility_id_eia',
                 'plant_id_eia',
@@ -349,32 +338,12 @@ def boiler_generator_assn(eia860_dfs, eia860_transformed_dfs):
     b_g_df = b_g_df.drop_duplicates().dropna()
 
     b_g_df = pudl.helpers.convert_to_date(b_g_df)
-
-    eia860_transformed_dfs['boiler_generator_assn_eia860'] = b_g_df
-
-    return eia860_transformed_dfs
+    return b_g_df
 
 
-def utilities(eia860_dfs, eia860_transformed_dfs):
-    """
-    Pulls and transforms the utilities table.
-
-    Args:
-        eia860_dfs (dict): Each entry in this
-            dictionary of DataFrame objects corresponds to a page from the
-            EIA860 form, as reported in the Excel spreadsheets they distribute.
-        eia860_transformed_dfs (dict): A dictionary of DataFrame objects in
-            which pages from EIA860 form (keys) correspond to normalized
-            DataFrames of values from that page (values)
-
-    Returns:
-        dict: eia860_transformed_dfs, a dictionary of DataFrame objects in
-        which pages from EIA860 form (keys) correspond to normalized
-        DataFrames of values from that page (values)
-
-    """
-    # Populating the 'utilities_eia860' table
-    u_df = eia860_dfs['utility'].copy()
+@transforms_single('eia860/utility', 'eia860/utilities')
+def utilities(u_df):
+    """Transforms the utilities table."""
 
     # Replace empty strings, whitespace, and '.' fields with real NA values
     u_df = pudl.helpers.fix_eia_na(u_df)
@@ -404,10 +373,7 @@ def utilities(eia860_dfs, eia860_transformed_dfs):
         u_df.astype({"utility_id_eia": int})
         .pipe(pudl.helpers.convert_to_date)
     )
-
-    eia860_transformed_dfs['utilities_eia860'] = u_df
-
-    return eia860_transformed_dfs
+    return u_df
 
 
 def transform(eia860_raw_dfs, eia860_tables=pc.eia860_pudl_tables):
@@ -426,25 +392,20 @@ def transform(eia860_raw_dfs, eia860_tables=pc.eia860_pudl_tables):
         DataFrame of values from that page (values)
 
     """
-    # these are the tables that we have transform functions for...
-    eia860_transform_functions = {
-        'ownership_eia860': ownership,
-        'generators_eia860': generators,
-        'plants_eia860': plants,
-        'boiler_generator_assn_eia860': boiler_generator_assn,
-        'utilities_eia860': utilities}
-    eia860_transformed_dfs = {}
+    # Primitive execution of transformations
+    df_cache = {}
+    for df_name, df in eia860_raw_dfs.items():
+        df_cache[fq_name(f'eia860/{df_name}')] = df
+    for t in Registry.tasks():
+        # TODO: throw away tasks that don't have all inputs available
+        inputs = [df_cache[x].copy() for x in t.inputs]
+        out = t.function(*inputs)
+        df_cache[t.output] = out
 
-    if not eia860_raw_dfs:
-        logger.info("No raw EIA 860 dataframes found. "
-                    "Not transforming EIA 860.")
-        return eia860_transformed_dfs
-    # for each of the tables, run the respective transform funtction
-    for table in eia860_transform_functions:
-        if table in eia860_tables:
-            logger.info(f"Transforming raw EIA 860 DataFrames for {table} "
-                        f"concatenated across all years.")
-            eia860_transform_functions[table](eia860_raw_dfs,
-                                              eia860_transformed_dfs)
+    eia860_transformed_dfs = {}
+    for name, df in df_cache.items():
+        if ':transformed' in name:
+            base_name = name.split('/')[1].split(':')[0]
+            eia860_transformed_dfs[f'{base_name}_eia860'] = df
 
     return eia860_transformed_dfs
