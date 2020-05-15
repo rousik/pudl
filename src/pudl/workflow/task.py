@@ -4,10 +4,7 @@ This allows wrapping PUDL transformation into tasks that can be executed
 by a library of sorts.
 """
 
-import os
 import re
-
-import pandas as pd
 
 
 def fq_name(df_name, stage='raw', force_stage=False):
@@ -67,11 +64,6 @@ def transforms_single(in_df_name, out_df_name):
     return DataFrameTaskDecorator(inputs=[in_df_name], output=out_df_name)
 
 
-def rename_dataframe(src_name, dst_name, stage='transformed'):
-    """Adds trivial task renaming dataframes."""
-    Registry.add_rename(fq_name(src_name, stage), fq_name(dst_name, stage))
-
-
 class Registry(object):
     all_tasks = []
 
@@ -83,29 +75,8 @@ class Registry(object):
     def tasks(cls):
         return list(cls.all_tasks)
 
-    # TODO: do we ever want to reset this (?)
+# In order to execute things we now need to:
 
-
-class DataFramePersistence(object):
-    """Simple persistence layer for panda dataframes.
-
-    Dataframes are identified using their fully-qualified names:
-
-      ${dataset}/${dataframe_name}:${stage}
-
-    They are simply persisted on disk in the feather format.
-    """
-
-    def __init__(self, working_dir_path):
-        self.working_dir_path = working_dir_path
-
-    def df_path(self, df_name):
-        return os.path.join(self.working_dir_path, df_name)
-
-    def get(self, df_name):
-        """Retrieve dataframe from a feather file."""
-        return pd.read_feather(self.df_path(df_name))
-
-    def set(self, df_name):
-        """Store dataframe into a feather file."""
-        return pd.to_feather(self.df_path(df_name))
+# - construct external inputs (from extract phase)
+# - construct luigi.Task objects for each abstract task in Registry
+# - initialize working dir for the etl run (random or given)
