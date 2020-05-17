@@ -8,8 +8,10 @@ import pandas as pd
 import pudl
 import pudl.constants as pc
 import pudl.workflow.task
-from pudl.workflow.task import Registry, fq_name, transforms
-from pudl.worklfow.task import transforms_many, transforms_single
+from pudl.workflow.task import (Registry, fq_name, transforms, transforms_many,
+                                transforms_single)
+
+# TODO(rousik): simplify the above import
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +65,7 @@ def ownership(o_df):
     'eia860/generator_proposed',
     'eia860/generator_existing',
     'eia860/generator_retired'],
-    'eia860/generators_eia860')
+    'eia860/generators')
 def generators(gp_df, ge_df, gr_df):
     """
     Pulls and transforms the generators table.
@@ -341,7 +343,7 @@ def boiler_generator_assn(b_g_df):
     return b_g_df
 
 
-@transforms_single('eia860/utility', 'eia860/utilities')
+@transforms_single('eia860/utility:raw', 'eia860/utilities:transformed')
 def utilities(u_df):
     """Transforms the utilities table."""
 

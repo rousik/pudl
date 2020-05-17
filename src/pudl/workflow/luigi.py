@@ -1,13 +1,19 @@
+import logging
 import os
 
 import luigi
 import pandas as pd
 
-from pudl.workflow.task import Registry, fq_name
+from pudl.workflow.task import Registry, fq_name, is_fq_name
+
+logger = logging.getLogger(__name__)
 
 
 class DataFramePersistence(object):
-    """Simple persistence layer for panda dataframes.
+    """Dataframe persistence layer based on on-disk feather files.
+
+    Use fully qualified name ${dataset}/${df_name}:${stage} to
+    store or retrieve dataframes.
 
     Dataframes are identified using their fully-qualified names:
 
@@ -20,18 +26,21 @@ class DataFramePersistence(object):
         self.working_dir_path = working_dir_path
 
     def df_path(self, df_name):
+        assert is_fq_name(df_name), f"df name not fully qualified: {df_name}"
         return os.path.join(self.working_dir_path, fq_name(df_name))
 
     def get(self, df_name):
         """Retrieve dataframe from a feather file."""
+        # TODO(jaro): time this method
         return pd.read_feather(self.df_path(df_name))
 
     def set(self, df_name, df):
         """Store dataframe into a feather file."""
+        # TODO(jaro): time this method
         return df.to_feather(self.df_path(df_name))
 
     def get_target(self, df_name):
-        """Constructs LocalTarget for given df."""
+        """Constructs LocalTarget for a given df."""
         luigi.LocalTarget(self.df_path(df_name))
 
 

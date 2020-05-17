@@ -3,6 +3,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
+  - luigi               # base
   - autopep8            # dev
   - bandit              # dev
   - coloredlogs         # base

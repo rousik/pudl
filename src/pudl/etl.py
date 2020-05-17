@@ -26,6 +26,7 @@ import pandas as pd
 
 import pudl
 import pudl.constants as pc
+import pudl.workflow.luigi
 
 logger = logging.getLogger(__name__)
 
@@ -202,22 +203,36 @@ def _etl_eia(etl_params, datapkg_dir, pudl_settings):
 
     # Extract EIA forms 923, 860
     data_dir = pudl_settings["data_dir"]
-    eia923_raw_dfs = pudl.extract.eia923.Extractor(
-        data_dir).extract(eia923_years)
-    eia860_raw_dfs = pudl.extract.eia860.Extractor(
-        data_dir).extract(eia860_years)
-    # Transform EIA forms 923, 860
-    eia923_transformed_dfs = pudl.transform.eia923.transform(
-        eia923_raw_dfs, eia923_tables=eia923_tables)
-    eia860_transformed_dfs = pudl.transform.eia860.transform(
-        eia860_raw_dfs, eia860_tables=eia860_tables)
+
+    pudl.extract.eia923.Extractor(
+        data_dir).register_workflow_tasks(eia923_years)
+    pudl.extract.eia860.Extractor(
+        data_dir).register_workflow_tasks(eia860_years)
+
+    # eia860 and eia923 transform are expressed as tasks.
+
+    # TODO(rousik): figure out how to debug/visualize the progress.
+    pudl.workflow.luigi.build_luigi_graph(
+        workflow_dir='/home/jaro/data/pudl-data/feather-storage')
+    # TODO(rousik): collect stuffs
+
+    # Extract from feather files (?)
+    raise RuntimeError('Baaaa. Need to extract feathers.')
+
+    # TODO(rousik): now we need to populate eia_transformed_dfs or pass
+    # this to other stages of the pipeline.
+
     # create an eia transformed dfs dictionary
-    eia_transformed_dfs = eia860_transformed_dfs.copy()
-    eia_transformed_dfs.update(eia923_transformed_dfs.copy())
+    eia_transformed_dfs = {}
+
     # convert types..
     eia_transformed_dfs = pudl.helpers.convert_dfs_dict_dtypes(
         eia_transformed_dfs, 'eia')
 
+    # TODO(rousik): convert eiaXYZ/table:transformed to table_eiaXYZ in
+    # the dict that is passed to further stages.
+
+    # TODO(rousik): convert this to tasks as well
     entities_dfs, eia_transformed_dfs = pudl.transform.eia.transform(
         eia_transformed_dfs,
         eia923_years=eia923_years,

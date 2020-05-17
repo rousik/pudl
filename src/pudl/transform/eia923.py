@@ -7,6 +7,7 @@ import pandas as pd
 
 import pudl
 import pudl.constants as pc
+from pudl.workflow.task import transforms, transforms_many, transforms_single
 
 logger = logging.getLogger(__name__)
 ###############################################################################
@@ -69,6 +70,7 @@ def _yearly_to_monthly_records(df, md):
     return all_years
 
 
+@transforms('eia923/fuel_receipt_costs', output_stage='clean')
 def _coalmine_cleanup(cmi_df):
     """Cleans up the coalmine_eia923 table.
 
@@ -143,31 +145,9 @@ def _coalmine_cleanup(cmi_df):
 ###############################################################################
 
 
-def plants(eia923_dfs, eia923_transformed_dfs):
-    """Transforms the plants_eia923 table.
-
-    Much of the static plant information is reported repeatedly, and scattered
-    across several different pages of EIA 923. The data frame that this
-    function uses is assembled from those many different pages, and passed in
-    via the same dictionary of dataframes that all the other ingest functions
-    use for uniformity.
-
-    Args:
-        eia923_dfs (dictionary of pandas.DataFrame): Each entry in this
-            dictionary of DataFrame objects corresponds to a page from the EIA
-            923 form, as reported in the Excel spreadsheets they distribute.
-        eia923_transformed_dfs (dict): A dictionary of DataFrame objects in
-            which pages from EIA923 form (keys) correspond to normalized
-            DataFrames of values from that page (values)
-
-    Returns:
-        dict: eia923_transformed_dfs, a dictionary of DataFrame objects in
-        which pages from EIA923 form (keys) correspond to normalized
-        DataFrames of values from that page (values)
-
-    """
-    plant_info_df = eia923_dfs['plant_frame'].copy()
-
+@transforms_single('eia923/plant_frame:raw', 'eia923/plants:transformed')
+def plants(plant_info_df):
+    """Transforms the plants_eia923 table."""
     # There are other fields being compiled in the plant_info_df from all of
     # the various EIA923 spreadsheet pages. Do we want to add them to the
     # database model too? E.g. capacity_mw, operator_name, etc.
@@ -194,13 +174,11 @@ def plants(eia923_dfs, eia923_transformed_dfs):
     plant_info_df.drop_duplicates(subset='plant_id_eia')
 
     plant_info_df['plant_id_eia'] = plant_info_df['plant_id_eia'].astype(int)
-
-    eia923_transformed_dfs['plants_eia923'] = plant_info_df
-
-    return eia923_transformed_dfs
+    return plant_info_df
 
 
-def generation_fuel(eia923_dfs, eia923_transformed_dfs):
+@transforms('eia923/generation_fuel')
+def generation_fuel(gf_df):
     """Transforms the generation_fuel_eia923 table.
 
     Args:
@@ -217,9 +195,6 @@ def generation_fuel(eia923_dfs, eia923_transformed_dfs):
         DataFrames of values from that page (values).
 
     """
-    # This needs to be a copy of what we're passed in so we can edit it.
-    gf_df = eia923_dfs['generation_fuel'].copy()
-
     # Drop fields we're not inserting into the generation_fuel_eia923 table.
     cols_to_drop = ['combined_heat_power',
                     'plant_name_eia',
@@ -251,14 +226,11 @@ def generation_fuel(eia923_dfs, eia923_transformed_dfs):
                                                                     pc.fuel_type_eia923_gen_fuel_simple_map)
 
     # Convert Year/Month columns into a single Date column...
-    gf_df = pudl.helpers.convert_to_date(gf_df)
-
-    eia923_transformed_dfs['generation_fuel_eia923'] = gf_df
-
-    return eia923_transformed_dfs
+    return pudl.helpers.convert_to_date(gf_df)
 
 
-def boiler_fuel(eia923_dfs, eia923_transformed_dfs):
+@transforms('eia923/boiler_fuel')
+def boiler_fuel(bf_df):
     """Transforms the boiler_fuel_eia923 table.
 
     Args:
@@ -275,8 +247,6 @@ def boiler_fuel(eia923_dfs, eia923_transformed_dfs):
         DataFrames of values from that page (values).
 
     """
-    bf_df = eia923_dfs['boiler_fuel'].copy()
-
     # Drop fields we're not inserting into the boiler_fuel_eia923 table.
     cols_to_drop = ['combined_heat_power',
                     'plant_name_eia',
@@ -304,14 +274,11 @@ def boiler_fuel(eia923_dfs, eia923_transformed_dfs):
     bf_df = pudl.helpers.fix_eia_na(bf_df)
 
     # Convert Year/Month columns into a single Date column...
-    bf_df = pudl.helpers.convert_to_date(bf_df)
-
-    eia923_transformed_dfs['boiler_fuel_eia923'] = bf_df
-
-    return eia923_transformed_dfs
+    return pudl.helpers.convert_to_date(bf_df)
 
 
-def generation(eia923_dfs, eia923_transformed_dfs):
+@transforms_single('eia923/generator:raw', 'eia923/generation:transformed')
+def generation(gen_df):
     """Transforms the generation_eia923 table.
 
     Args:
@@ -329,7 +296,7 @@ def generation(eia923_dfs, eia923_transformed_dfs):
 
     """
     gen_df = (
-        eia923_dfs['generator']
+        gen_df
         .dropna(subset=['generator_id'])
         .drop(['combined_heat_power',
                'plant_name_eia',
@@ -353,14 +320,11 @@ def generation(eia923_dfs, eia923_transformed_dfs):
     # so it's pretty clear which one to drop.
     unique_subset = ["report_date", "plant_id_eia", "generator_id"]
     dupes = gen_df[gen_df.duplicated(subset=unique_subset, keep=False)]
-    gen_df = gen_df.drop(dupes.net_generation_mwh.isna().index)
-
-    eia923_transformed_dfs['generation_eia923'] = gen_df
-
-    return eia923_transformed_dfs
+    return gen_df.drop(dupes.net_generation_mwh.isna().index)
 
 
-def coalmine(eia923_dfs, eia923_transformed_dfs):
+@transforms_single('eia923/fuel_receipt_costs:clean', 'eia923/coalmine:transformed')
+def coalmine(cmi_df):
     """Transforms the coalmine_eia923 table.
 
     Args:
@@ -379,19 +343,11 @@ def coalmine(eia923_dfs, eia923_transformed_dfs):
     """
     # These are the columns that we want to keep from FRC for the
     # coal mine info table.
-    coalmine_cols = ['mine_name',
+    cmi_df = cmi_df[['mine_name',
                      'mine_type_code',
                      'state',
                      'county_id_fips',
-                     'mine_id_msha']
-
-    # Make a copy so we don't alter the FRC data frame... which we'll need
-    # to use again for populating the FRC table (see below)
-    cmi_df = eia923_dfs['fuel_receipts_costs'].copy()
-    # Keep only the columns listed above:
-    cmi_df = _coalmine_cleanup(cmi_df)
-
-    cmi_df = cmi_df[coalmine_cols]
+                     'mine_id_msha']]
 
     # If we actually *have* an MSHA ID for a mine, then we have a totally
     # unique identifier for that mine, and we can safely drop duplicates and
@@ -426,14 +382,13 @@ def coalmine(eia923_dfs, eia923_transformed_dfs):
     # then name the index id
     cmi_df.index.name = 'mine_id_pudl'
     # then make the id index a column for simpler transferability
-    cmi_df = cmi_df.reset_index()
-
-    eia923_transformed_dfs['coalmine_eia923'] = cmi_df
-
-    return eia923_transformed_dfs
+    return cmi_df.reset_index()
 
 
-def fuel_receipts_costs(eia923_dfs, eia923_transformed_dfs):
+@transforms_many(
+    ['eia923/fuel_receipt_costs:clean', 'eia923/coalmine:transformed'],
+    'eia923/fuel_receipt_costs:transformed')
+def fuel_receipts_costs(frc_df, cmi_df):
     """Transforms the fuel_receipts_costs_eia923 dataframe.
 
     Fuel cost is reported in cents per mmbtu. Converts cents to dollars.
@@ -452,8 +407,6 @@ def fuel_receipts_costs(eia923_dfs, eia923_transformed_dfs):
         DataFrames of values from that page (values)
 
     """
-    frc_df = eia923_dfs['fuel_receipts_costs'].copy()
-
     # Drop fields we're not inserting into the fuel_receipts_costs_eia923
     # table.
     cols_to_drop = ['plant_name_eia',
@@ -468,21 +421,12 @@ def fuel_receipts_costs(eia923_dfs, eia923_transformed_dfs):
                     'regulated',
                     'reporting_frequency']
 
-    cmi_df = (
-        eia923_transformed_dfs['coalmine_eia923'].copy()
-        # In order for the merge to work, we need to get the county_id_fips
-        # field back into ready-to-dump form... so it matches the types of the
-        # county_id_fips field that we are going to be merging on in the
-        # frc_df.
-        # rename(columns={'id': 'mine_id_pudl'})
-    )
-
     # This type/naming cleanup function is separated out so that we can be
     # sure it is applied exactly the same both when the coalmine_eia923 table
     # is populated, and here (since we need them to be identical for the
     # following merge)
     frc_df = (
-        frc_df.pipe(_coalmine_cleanup).
+        frc_df.
         merge(cmi_df, how='left',
               on=['mine_name', 'state', 'mine_id_msha',
                   'mine_type_code', 'county_id_fips']).
@@ -529,49 +473,4 @@ def fuel_receipts_costs(eia923_dfs, eia923_transformed_dfs):
     # occur in the 2012 data. Real values should be <0.25ppm.
     bad_hg_idx = frc_df.mercury_content_ppm >= 7.0
     frc_df.loc[bad_hg_idx, "mercury_content_ppm"] = np.nan
-
-    eia923_transformed_dfs['fuel_receipts_costs_eia923'] = frc_df
-
-    return eia923_transformed_dfs
-
-
-def transform(eia923_raw_dfs, eia923_tables=pc.eia923_pudl_tables):
-    """Transforms all the EIA 923 tables.
-
-    Args:
-        eia923_raw_dfs (dict): a dictionary of tab names (keys) and DataFrames
-            (values). Generated from `pudl.extract.eia923.extract()`.
-        eia923_tables (tuple): A tuple containing the EIA923 tables that can be
-            pulled into PUDL.
-
-    Returns:
-        dict: A dictionary of DataFrame with table names as keys and
-        :class:`pandas.DataFrame` objects as values, where the contents of the
-        DataFrames correspond to cleaned and normalized PUDL database tables,
-        ready for loading.
-
-    """
-    eia923_transform_functions = {
-        'generation_fuel_eia923': generation_fuel,
-        'boiler_fuel_eia923': boiler_fuel,
-        'generation_eia923': generation,
-        'coalmine_eia923': coalmine,
-        'fuel_receipts_costs_eia923': fuel_receipts_costs
-    }
-    eia923_transformed_dfs = {}
-
-    if not eia923_raw_dfs:
-        logger.info("No raw EIA 923 DataFrames found. "
-                    "Not transforming EIA 923.")
-        return eia923_transformed_dfs
-
-    for table in eia923_transform_functions.keys():
-        if table in eia923_tables:
-            logger.info(
-                f"Transforming raw EIA 923 DataFrames for {table} "
-                f"concatenated across all years.")
-            eia923_transform_functions[table](eia923_raw_dfs,
-                                              eia923_transformed_dfs)
-        else:
-            logger.info(f'Not transforming {table}')
-    return eia923_transformed_dfs
+    return frc_df

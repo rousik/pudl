@@ -9,6 +9,7 @@ import pandas as pd
 
 import pudl
 import pudl.constants as pc
+import pudl.workflow.task as task
 import pudl.workspace.datastore as datastore
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,48 @@ class GenericExtractor(object):
         """Provide custom dtypes for given page and year."""
         return {}
 
+    def register_workflow_tasks(self, years):
+        """Register all page extract calls as abstract tasks."""
+        # fcn = lambda: self.extract_page(self, page, years)
+        for page in self.extractable_pages():
+            task.Registry.add_task(task.PudlTask(
+                inputs=[],
+                output=f'{self._dataset_name}/{page}:raw',
+                function=lambda: self.extract_page(self, page, years)))
+
+    def extract_page(self, page, years):
+        df = pd.DataFrame()
+        for yr in years:
+            logger.info(
+                f'Loading dataframe for {self._dataset_name} {page} {yr}')
+            newdata = pd.read_excel(
+                self._load_excel_file(yr, page),
+                sheet_name=self._metadata.get_sheet_name(yr, page),
+                skiprows=self._metadata.get_skiprows(yr, page),
+                dtype=self.get_dtypes(yr, page))
+
+            newdata = pudl.helpers.simplify_columns(newdata)
+            newdata = self.process_raw(newdata, yr, page)
+            newdata = newdata.rename(
+                columns=self._metadata.get_column_map(yr, page))
+            newdata = self.process_renamed(newdata, yr, page)
+            df = df.append(newdata, sort=True, ignore_index=True)
+
+        # After all years are loaded, consolidate missing columns
+        missing_cols = set(self._metadata.get_all_columns(
+            page)).difference(df.columns)
+        empty_cols = pd.DataFrame(columns=missing_cols)
+        return pd.concat([df, empty_cols], sort=True)
+
+    def extractable_pages(self):
+        result = []
+        for page in self._metadata.get_all_pages():
+            if page not in self.BLACKLISTED_PAGES:
+                result.append(page)
+            else:
+                logger.info(f'Skipping blacklisted page {page}.')
+        return result
+
     def extract(self, years):
         """Extracts dataframes.
 
@@ -181,33 +224,9 @@ class GenericExtractor(object):
             return {}
 
         raw_dfs = {}
-        for page in self._metadata.get_all_pages():
-            if page in self.BLACKLISTED_PAGES:
-                logger.info(f'Skipping blacklisted page {page}.')
-                continue
-            df = pd.DataFrame()
-            for yr in years:
-                logger.info(
-                    f'Loading dataframe for {self._dataset_name} {page} {yr}')
-                newdata = pd.read_excel(
-                    self._load_excel_file(yr, page),
-                    sheet_name=self._metadata.get_sheet_name(yr, page),
-                    skiprows=self._metadata.get_skiprows(yr, page),
-                    dtype=self.get_dtypes(yr, page))
-
-                newdata = pudl.helpers.simplify_columns(newdata)
-                newdata = self.process_raw(newdata, yr, page)
-                newdata = newdata.rename(
-                    columns=self._metadata.get_column_map(yr, page))
-                newdata = self.process_renamed(newdata, yr, page)
-                df = df.append(newdata, sort=True, ignore_index=True)
-
-            # After all years are loaded, consolidate missing columns
-            missing_cols = set(self._metadata.get_all_columns(
-                page)).difference(df.columns)
-            empty_cols = pd.DataFrame(columns=missing_cols)
-            df = pd.concat([df, empty_cols], sort=True)
-            raw_dfs[page] = self.process_final_page(df, page)
+        for page in self.extractable_pages():
+            raw_dfs[page] = self.process_final_page(
+                self.extract_page(self, page, years), page)
         return raw_dfs
 
     def _load_excel_file(self, year, page):
