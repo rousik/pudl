@@ -23,10 +23,12 @@ import time
 import uuid
 
 import pandas as pd
-
 import pudl
 import pudl.constants as pc
 import pudl.workflow.luigi
+import pudl.workflow.prefect
+from prefect.engine.executors import LocalExecutor
+from prefect.utilities.debug import raise_on_exception
 
 logger = logging.getLogger(__name__)
 
@@ -212,10 +214,17 @@ def _etl_eia(etl_params, datapkg_dir, pudl_settings):
     # eia860 and eia923 transform are expressed as tasks.
 
     # TODO(rousik): figure out how to debug/visualize the progress.
-    pudl.workflow.luigi.build_luigi_graph(
-        workflow_dir='/home/jaro/data/pudl-data/feather-storage')
-    # TODO(rousik): collect stuffs
+    flow = pudl.workflow.prefect.build_flow(
+        '/home/jaro/data/pudl-data/workflow_temp_files')
+    # TODO(rousik): we should be filtering only tasks necessary to create specific
+    # output tables, reference_tasks may be the key here.
 
+    # TODO(rousik): extract this path to run-time flag, allow for nuking the temp storage
+    with raise_on_exception():
+        flow.run(executor=LocalExecutor())
+
+    # TODO(rousik): extract all dataframes from pickle files to integrate with the rest
+    # of the pipeline.
     # Extract from feather files (?)
     raise RuntimeError('Baaaa. Need to extract feathers.')
 

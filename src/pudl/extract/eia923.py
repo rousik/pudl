@@ -10,7 +10,6 @@ years 2009-2016 work, as they share nearly identical file formatting.
 import logging
 
 import pandas as pd
-
 import pudl.extract.excel as excel
 
 logger = logging.getLogger(__name__)
@@ -21,6 +20,7 @@ class Extractor(excel.GenericExtractor):
 
     METADATA = excel.Metadata('eia923')
     BLACKLISTED_PAGES = ['plant_frame']
+    # BLACKLISTED_PAGES = ['plant_frame']
 
     # Pages not supported by the metadata:
     # puerto_rico, github issue #457

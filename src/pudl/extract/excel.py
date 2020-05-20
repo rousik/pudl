@@ -6,7 +6,6 @@ import logging
 import os.path
 
 import pandas as pd
-
 import pudl
 import pudl.constants as pc
 import pudl.workflow.task as task
@@ -175,8 +174,9 @@ class GenericExtractor(object):
         for page in self.extractable_pages():
             task.Registry.add_task(task.PudlTask(
                 inputs=[],
-                output=f'{self._dataset_name}/{page}:raw',
-                function=lambda: self.extract_page(self, page, years)))
+                output=task.PudlTableReference(
+                    page, self._dataset_name, task.Stage.RAW),
+                function=lambda p=page, y=years: self.extract_page(p, y)))
 
     def extract_page(self, page, years):
         df = pd.DataFrame()
@@ -228,6 +228,8 @@ class GenericExtractor(object):
             raw_dfs[page] = self.process_final_page(
                 self.extract_page(self, page, years), page)
         return raw_dfs
+
+    # TODO(rousik): load_excel_file should be either synchronized method or it
 
     def _load_excel_file(self, year, page):
         """Returns ExcelFile object corresponding to given (year, page).
