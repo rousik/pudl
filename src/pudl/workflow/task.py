@@ -33,6 +33,9 @@ class PudlTableReference(object):
         self.table_name = table_name
         self.dataset = dataset
         self.stage = stage
+        if dataset not in ['eia860', 'eia923', 'eia']:
+            raise KeyError(
+                f'Unsupported dataset {dataset} used when creating table reference.')
 
     def __str__(self):
         return f'ref<{self.name()}>'
@@ -101,7 +104,7 @@ class PudlTableTransformer(object):
     @classmethod
     def table_ref(cls, table_name, stage=Stage.RAW):
         """Returns PudlTableReference for self.DATASET."""
-        return PudlTableReference(cls.DATASET, table_name, stage=stage)
+        return PudlTableReference(table_name, dataset=cls.DATASET, stage=stage)
 
     @classmethod
     def get_table_name(cls):
@@ -110,24 +113,27 @@ class PudlTableTransformer(object):
 
     @classmethod
     def get_stage(cls, stage):
-        return PudlTableReference(cls.DATASET, cls.get_table_name(), stage)
+        return cls.table_ref(cls.get_table_name(), stage)
 
     @classmethod
     def has_transformations(cls):
         """Returns True if any transformer methods corresponding to known Stage exist."""
         for attr in dir(cls):
-            if attr.lower() in Stage.__members__:
+            if attr.upper() in Stage.__members__:
                 return True
         return False
 
     @classmethod
     def get_subclasses_with_transformations(cls):
         """Returns all subclasses that have defined transformations."""
+        logging.info(f'Finding subclasses for {cls.__name__}')
         res = set()
         for sc in cls.__subclasses__():
+            logger.info(f'-- processing subclass {sc.__name__}')
             if sc.has_transformations():
+                logger.info(f'  > has_transformations()')
                 res.add(sc)
-                res.update(sc.get_subclasses_with_transformations())
+            res.update(sc.get_subclasses_with_transformations())
         return res
 
     @classmethod
@@ -137,10 +143,10 @@ class PudlTableTransformer(object):
         tasks = []
         known_stages = []
         for name, stage in Stage.__members__.items():
-            if name.tolower() in attrs:
+            if name.lower() in attrs:
                 known_stages.append(stage)
                 inputs = []
-                fcn = getattr(cls, name.tolower())
+                fcn = getattr(cls, name.lower())
                 if hasattr(fcn, 'pudl_table_references'):
                     # @reads decorator defines what the inputs should be.
                     inputs = fcn.pudl_table_references

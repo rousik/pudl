@@ -1,6 +1,7 @@
 import logging
 
 import prefect
+
 from pudl.workflow import persistence, task
 
 logger = logging.getLogger(__name__)
@@ -14,8 +15,8 @@ class DataFrameTask0(prefect.Task):
         self.fcn = fcn
         self.df_persistence = persistence
         self.output = output
-        logger.info(f'Initializing task with output {output}')
-        super().__init__(name=output.name(), **kwargs)
+        super().__init__(name=output.name(),
+                         tags=[output.stage.name], **kwargs)
 
     def persist(self, df):
         if not self.df_persistence:
@@ -25,10 +26,15 @@ class DataFrameTask0(prefect.Task):
 
     def run(self):
         if self.df_persistence and self.df_persistence.exists(self.output):
-            logger.info(f'{self.output} already persisted.')
             return self.df_persistence.get(self.output)
         else:
             return self.persist(self.fcn())
+
+    def get_result(self):
+        if not self.df_persistence:
+            raise NotImplementedError(
+                'Cannot retrieve dataframe without persistence.')
+        return self.df_persistence.get(self.output)
 
 
 class DataFrameTask1(DataFrameTask0):
@@ -64,7 +70,7 @@ def get_task_obj(num_arguments):
     return classes[num_arguments]
 
 
-def build_flow(tmp_dir, task_filter=None):
+def build_flow(tmp_dir, task_filter=None, raise_on_unmet_dependencies=False):
     prefect_tasks = {}  # output -> prefect_task
     df_persistence = persistence.Pickle(tmp_dir)
 
@@ -72,9 +78,24 @@ def build_flow(tmp_dir, task_filter=None):
     all_meta_tasks = []
     all_meta_tasks.extend(task.Registry.tasks())
     for tf_class in task.PudlTableTransformer.get_subclasses_with_transformations():
-        logger.info(f'Processing transformer class {tf_class.__name__}')
         all_meta_tasks.extend(tf_class.generate_tasks())
-    for meta_task in all_meta_tasks:
+
+    pruned_tasks = prune_invalid_tasks(all_meta_tasks)
+    if len(pruned_tasks) < len(all_meta_tasks):
+        known_inputs = set(t.output for t in pruned_tasks)
+        num_pruned = len(all_meta_tasks) - len(pruned_tasks)
+        logger.warning(f'{num_pruned} tasks pruned due to invalid inputs.')
+        for t in all_meta_tasks:
+            if t not in pruned_tasks:
+                bad_inputs = sorted(str(i) for i in set(
+                    t.inputs).difference(known_inputs))
+                logger.warning(
+                    f'Task generating {t.output} has bad inputs: {bad_inputs}')
+        if raise_on_unmet_dependencies:
+            raise task.InvalidDependencies(
+                f'{num_pruned} tasks have unknown dependencies.')
+
+    for meta_task in pruned_tasks:
         if task_filter and not task_filter(meta_task.output):
             continue
         # TODO(rousik): this filtering is kind of crude and good for testing only, eliminate.
@@ -88,26 +109,30 @@ def build_flow(tmp_dir, task_filter=None):
             'inputs': meta_task.inputs
         }
 
+    # TODO(rousik): nuke this thing, we don't need this print once we are confident
+    # things work well.
     for df in sorted(x.name() for x in list(prefect_tasks)):
         print(df)
-
-    # Check that all known inputs have prefect tasks
-    discard_tasks = set()
-    for out, p_task in prefect_tasks.items():
-        for inp in p_task['inputs']:
-            if inp not in prefect_tasks:
-                logging.error(
-                    f'Task {out} depends on nonexistent input {inp}, discarding.')
-                discard_tasks.add(out)
-                # TODO(rousik): discarding of tasks may be transitive
 
     # Add all the tasks into prefect flow now
     with prefect.Flow('pudl-etl') as flow:
         for out, p_task in prefect_tasks.items():
-            if out in discard_tasks:
-                continue
             input_tasks = [prefect_tasks[i]['task'] for i in p_task['inputs']]
             logging.info(f'Binding {len(input_tasks)} inputs to task {out}')
             flow.add_task(p_task['task'])
             p_task['task'].bind(*input_tasks)
         return flow
+
+
+def prune_invalid_tasks(tasks):
+    """Remove tasks that transitively depend on unknown inputs."""
+    good_tasks = list(tasks)
+    while True:
+        # debug stuffsies
+        known_outputs = set(t.output for t in good_tasks)
+        still_good = [t for t in good_tasks if not set(
+            t.inputs).difference(known_outputs)]
+        if len(still_good) == len(good_tasks):
+            return good_tasks
+        else:
+            good_tasks = still_good

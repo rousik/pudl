@@ -23,12 +23,14 @@ import time
 import uuid
 
 import pandas as pd
+from prefect.engine.executors import LocalExecutor
+from prefect.utilities.debug import raise_on_exception
+
 import pudl
 import pudl.constants as pc
 import pudl.workflow.luigi
 import pudl.workflow.prefect
-from prefect.engine.executors import LocalExecutor
-from prefect.utilities.debug import raise_on_exception
+from pudl.workflow.task import Stage
 
 logger = logging.getLogger(__name__)
 
@@ -212,34 +214,35 @@ def _etl_eia(etl_params, datapkg_dir, pudl_settings):
         data_dir).register_workflow_tasks(eia860_years)
 
     # eia860 and eia923 transform are expressed as tasks.
-
-    # TODO(rousik): figure out how to debug/visualize the progress.
     flow = pudl.workflow.prefect.build_flow(
         '/home/jaro/data/pudl-data/workflow_temp_files')
-    # TODO(rousik): we should be filtering only tasks necessary to create specific
-    # output tables, reference_tasks may be the key here.
-
     # TODO(rousik): extract this path to run-time flag, allow for nuking the temp storage
+    # Maybe this could be stored somewhere in pudl_settings. We may also consider what
+    # are the caching/invalidation rules, e.g. we may either consider pre-existing files
+    # to be okay as long as the ETL configuration is the same or we can simply create
+    # a flag that will allow us to say which Stages/kinds of temp files should be
+    # kept or deleted.
+
+    # TODO(rousik): ideally, we would only add tasks necessary to create specific
+    # output tables. Think about how could we do that.
+
     with raise_on_exception():
         flow.run(executor=LocalExecutor())
 
-    # TODO(rousik): extract all dataframes from pickle files to integrate with the rest
-    # of the pipeline.
-    # Extract from feather files (?)
-    raise RuntimeError('Baaaa. Need to extract feathers.')
-
-    # TODO(rousik): now we need to populate eia_transformed_dfs or pass
-    # this to other stages of the pipeline.
-
-    # create an eia transformed dfs dictionary
+    # TODO(rousik): Once we convert rest of the pipeline to tasks, we no longer need
+    # to pull the dataframes and rename them from here.
     eia_transformed_dfs = {}
+    for tf_task in flow.get_tasks(tags=[Stage.TRANSFORMED.name]):
+        out = tf_task.output
+        eia_transformed_dfs[f'{out.table_name}_{out.dataset}'] = tf_task.get_result(
+        )
+
+    logger.info(
+        f'eia_transformed_dfs contains these tables: {sorted(eia_transformed_dfs)}')
 
     # convert types..
     eia_transformed_dfs = pudl.helpers.convert_dfs_dict_dtypes(
         eia_transformed_dfs, 'eia')
-
-    # TODO(rousik): convert eiaXYZ/table:transformed to table_eiaXYZ in
-    # the dict that is passed to further stages.
 
     # TODO(rousik): convert this to tasks as well
     entities_dfs, eia_transformed_dfs = pudl.transform.eia.transform(
