@@ -9,6 +9,8 @@ import re
 from collections import namedtuple
 from enum import Enum, auto
 
+import pudl.constants as pc
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,9 +35,9 @@ class PudlTableReference(object):
         self.table_name = table_name
         self.dataset = dataset
         self.stage = stage
-        if dataset not in ['eia860', 'eia923', 'eia']:
+        if dataset not in pc.data_sources:
             raise KeyError(
-                f'Unsupported dataset {dataset} used when creating table reference.')
+                f'Unsupported data_source {dataset} used when creating tableref.')
 
     def __str__(self):
         return f'ref<{self.name()}>'
@@ -126,12 +128,9 @@ class PudlTableTransformer(object):
     @classmethod
     def get_subclasses_with_transformations(cls):
         """Returns all subclasses that have defined transformations."""
-        logging.info(f'Finding subclasses for {cls.__name__}')
         res = set()
         for sc in cls.__subclasses__():
-            logger.info(f'-- processing subclass {sc.__name__}')
             if sc.has_transformations():
-                logger.info(f'  > has_transformations()')
                 res.add(sc)
             res.update(sc.get_subclasses_with_transformations())
         return res
