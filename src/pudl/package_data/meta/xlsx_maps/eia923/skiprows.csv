@@ -1,4 +1,4 @@
-year_index,generation_fuel,puerto_rico,stocks,oil_stocks,coal_stocks,petcoke_stocks,energy_storage,boiler_fuel,generator,fuel_receipts_costs,plant_frame
+year_index,generation_fuel,puerto_rico,stocks,oil_stocks,coal_stocks,petcoke_stocks,energy_storage,boiler_fuel,generator,fuel_receipts_costs,plants
 2009,7,-1,7,5,5,5,-1,7,7,6,-1
 2010,7,-1,7,5,5,5,-1,7,7,7,-1
 2011,5,-1,5,5,5,5,-1,5,5,4,4
