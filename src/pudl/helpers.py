@@ -37,6 +37,11 @@ sum_na = partial(pd.Series.sum, skipna=False)
 tz_finder = timezonefinder.TimezoneFinder()
 
 
+def convert_to_boolean(df, to_replace=["Y", "N", "NaN"], value=[True, False, pd.NA]):
+    """Converts string values Y, N, NaN to True, False, pd.NA."""
+    return df.fillna("NaN").replace(to_replace=to_replace, value=value)
+
+
 def add_fips_ids(df, state_col="state", county_col="county", vintage=2015):
     """Add State and County FIPS IDs to a dataframe."""
     af = addfips.AddFIPS(vintage=vintage)

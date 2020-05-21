@@ -3,6 +3,7 @@ import logging
 import os
 
 import pandas as pd
+
 from pudl.workflow.task import fq_name, is_fq_name
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,4 @@ class Pickle(AbstractPersistence):
         return pd.read_pickle(self.df_path(ref.name()), compression=None)
 
     def set(self, ref, df):
-        logger.info(f'Persisting {ref.name()} into {self.df_path(ref.name())}')
-        logger.info(f'PERSIST Columns: {df.columns}')
         return df.to_pickle(self.df_path(ref.name()), compression=None)

@@ -25,7 +25,10 @@ class Stage(Enum):
     RAW = auto()
     TIDY = auto()
     CLEAN = auto()
+    ASSIGN_DTYPE = auto()
     TRANSFORMED = auto()
+    # TODO(rousik): dtype assignment happens both before transform and after
+    # transform
 
 
 class PudlTableReference(object):
@@ -76,6 +79,21 @@ class reads(object):
     def __call__(self, fcn):
         fcn.pudl_table_references = self.references
         return fcn
+
+
+class emits(object):
+    """Annotates method with emits_stage."""
+    # TODO(rousik): we could consider annotating with full tableref
+
+    def __init__(self, stage):
+        self.stage = stage
+
+    def __call__(self, fcn):
+        fcn.emits_stage = self.stage
+        return fcn
+
+# TODO(rousik): instead of relying on method names (brittle), use emits annotations
+# to find the table transformations.
 
 
 class PudlTableTransformer(object):

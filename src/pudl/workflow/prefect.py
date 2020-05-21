@@ -28,7 +28,11 @@ class DataFrameTask0(prefect.Task):
         if self.df_persistence and self.df_persistence.exists(self.output):
             return self.df_persistence.get(self.output)
         else:
-            return self.persist(self.fcn())
+            df = self.fcn()
+            if not df:
+                raise AssertionError(
+                    f'Method generating {self.output} did not return anything.')
+            return self.persist(df)
 
     def get_result(self):
         if not self.df_persistence:
