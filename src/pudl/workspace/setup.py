@@ -5,10 +5,9 @@ import logging
 import pathlib
 import shutil
 
-import yaml
-
 import pudl.constants as pc
 import pudl.workspace.datastore as datastore
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +85,7 @@ def get_defaults():
     return derive_paths(pudl_in, pudl_out)
 
 
-def derive_paths(pudl_in, pudl_out):
+def derive_paths(pudl_in, pudl_out, run_id=None):
     """
     Derive PUDL paths based on given input and output paths.
 
@@ -126,7 +125,10 @@ def derive_paths(pudl_in, pudl_out):
     # Everything else goes into outputs, generally organized by type of file:
     pudl_out = pathlib.Path(pudl_out).expanduser().resolve()
     ps["pudl_out"] = str(pudl_out)
-    ps["temp_files"] = str(pudl_out / "tmp")
+    if run_id:
+        ps["temp_files"] = str(pudl_out / "tmp" / run_id)
+    else:
+        ps["temp_files"] = str(pudl_out / "tmp")
     # One directory per output format, datapackage, sqlite, etc.:
     for fmt in pc.output_formats:
         ps[f"{fmt}_dir"] = str(pudl_out / fmt)

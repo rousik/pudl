@@ -20,11 +20,11 @@ import argparse
 import logging
 import pathlib
 import sys
+import uuid
 
 import coloredlogs
-import yaml
-
 import pudl
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,13 @@ def parse_command_line(argv):
         will fail. Either the datapkg_bundle_name in the settings_file needs to
         be unique or you need to include --clobber""",
         default=False)
+    parser.add_argument(
+        '--run_id',
+        help="""Unique identifier of this run. This will be used to identify
+        temporary files created during the run. In case the ETL needs to be
+        restarted after error, you could reuse the existing artifacts if you
+        specify the same number. Usually, this will be assigned randomly.""",
+        default=str(uuid.uuid4()))
     arguments = parser.parse_args(argv[1:])
     return arguments
 
@@ -80,7 +87,7 @@ def main():
         pudl_out = pudl.workspace.setup.get_defaults()["pudl_out"]
 
     pudl_settings = pudl.workspace.setup.derive_paths(
-        pudl_in=pudl_in, pudl_out=pudl_out)
+        pudl_in=pudl_in, pudl_out=pudl_out, run_id=args.run_id)
 
     logger.info('verifying that the data we need exists in the data store')
     flattened_params_dict = pudl.etl.get_flattened_etl_parameters(
