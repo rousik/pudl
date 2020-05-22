@@ -126,6 +126,7 @@ def derive_paths(pudl_in, pudl_out):
     # Everything else goes into outputs, generally organized by type of file:
     pudl_out = pathlib.Path(pudl_out).expanduser().resolve()
     ps["pudl_out"] = str(pudl_out)
+    ps["temp_files"] = str(pudl_out / "tmp")
     # One directory per output format, datapackage, sqlite, etc.:
     for fmt in pc.output_formats:
         ps[f"{fmt}_dir"] = str(pudl_out / fmt)
