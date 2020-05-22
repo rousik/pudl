@@ -214,8 +214,12 @@ def _etl_eia(etl_params, datapkg_dir, pudl_settings):
         data_dir).register_workflow_tasks(eia860_years)
 
     # eia860 and eia923 transform are expressed as tasks.
-    flow = pudl.workflow.prefect.build_flow(
-        '/home/jaro/data/pudl-data/workflow_temp_files')
+    flow = pudl.workflow.prefect.build_flow(pudl_settings["temp_dir"])
+    # TODO(rousik): in general, we should
+    # TODO(rousik): consider cache reuse/invalidation rules. In general, we should
+    # not reuse temp dataframes in subsequent runs, unless we specify run_id that
+    # is the same, in which case we should simply
+
     # TODO(rousik): extract this path to run-time flag, allow for nuking the temp storage
     # Maybe this could be stored somewhere in pudl_settings. We may also consider what
     # are the caching/invalidation rules, e.g. we may either consider pre-existing files

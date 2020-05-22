@@ -29,7 +29,7 @@ class DataFrameTask0(prefect.Task):
             return self.df_persistence.get(self.output)
         else:
             df = self.fcn()
-            if not df:
+            if df is None:
                 raise AssertionError(
                     f'Method generating {self.output} did not return anything.')
             return self.persist(df)

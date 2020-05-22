@@ -71,20 +71,19 @@ class CommonCleanupMixin(object):
 
     @classmethod
     def clean(cls, df):
-        df = df.pipe(pudl.helpers.fix_eia_na).pipe(
-            pudl.helpers.convert_to_date)
-        try:
-            for operator, columndef in cls.COLUMN_CLEANUP_OPERATIONS:
-                cols = columndef
-                if type(columndef) == str:
-                    cols = [columndef]
-                for c in cols:
-                    df[c] = operator(df[c])
-            df = cls.table_specific_clean(df)
-        except ValueError as err:
-            logging.error(f'Bad transformation in {cls.__name__}: {err}')
-            raise err
+        df = cls.common_clean(df)
+        for operator, columndef in cls.COLUMN_CLEANUP_OPERATIONS:
+            cols = columndef
+            if type(columndef) == str:
+                cols = [columndef]
+            for c in cols:
+                df[c] = operator(df[c])
+        df = cls.table_specific_clean(df)
         return df
+
+    @classmethod
+    def common_clean(cls, df):
+        return df.pipe(pudl.helpers.fix_eia_na).pipe(pudl.helpers.convert_to_date)
 
     @classmethod
     def table_specific_clean(cls, df):
@@ -99,6 +98,7 @@ class CommonCleanupMixin(object):
 
 
 class Ownership(CommonCleanupMixin, Tf):
+    """Builds eia860/ownership table."""
 
     COLUMN_DTYPES = {
         "owner_utility_id_eia": pd.Int64Dtype(),
@@ -126,6 +126,7 @@ class Ownership(CommonCleanupMixin, Tf):
 
 
 class Generators(CommonCleanupMixin, Tf):
+    """Builds eia860/generators table."""
     @reads(
         Tf.table_ref('generator_proposed'),
         Tf.table_ref('generator_existing'),
@@ -225,7 +226,9 @@ class Generators(CommonCleanupMixin, Tf):
         # TODO(rousik): do we need to call convert_to_date again here?
 
 
-class Plant(CommonCleanupMixin, Tf):
+class Plants(CommonCleanupMixin, Tf):
+    """Builds eia860/plants table."""
+
     COLUMN_CLEANUP_OPERATIONS = [
         # A subset of the columns have "X" values, where other columns_to_fix
         # have "N" values. Replacing these values with "N" will make for uniform
@@ -278,6 +281,7 @@ class Plant(CommonCleanupMixin, Tf):
 
 
 class BoilerGeneratorAssn(CommonCleanupMixin, Tf):
+    """Builds eia860/boiler_generator_assn table."""
 
     COLUMN_DTYPES = {
         # We need to cast the generator_id column as type str because sometimes
@@ -285,6 +289,7 @@ class BoilerGeneratorAssn(CommonCleanupMixin, Tf):
         'generator_id': str,
         'boiler_id': str,
         'utility_id_eia': int,
+        # TODO(rousik): is int-typing of this necessary?
     }
 
     def tidy(df):

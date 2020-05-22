@@ -4,6 +4,7 @@ import logging
 
 import numpy as np
 import pandas as pd
+
 import pudl
 import pudl.constants as pc
 import pudl.workflow.task as task
@@ -11,6 +12,27 @@ from pudl.workflow.task import Stage, reads
 
 logger = logging.getLogger(__name__)
 Tf = task.PudlTableTransformer.for_dataset('eia923')
+
+
+class CommonMixin(pudl.transform.eia860.CommonCleanupMixin):
+
+    COLUMNS_TO_DROP = None
+    """List of columns that should be removed from the raw table."""
+
+    COLUMNS_TO_KEEP = None
+    """List of columns that should be kept. Needs to be non-empty to apply."""
+
+    @classmethod
+    def common_clean(cls, df):
+        if cls.COLUMNS_TO_DROP:
+            df.drop(cls.COLUMNS_TO_DROP, axis=1, inplace=True)
+        if cls.COLUMNS_TO_KEEP:
+            df = df[[cls.COLUMNS_TO_KEEP]]
+        df = _yearly_to_monthly_records(df, pc.month_dict_eia923)
+        df = df.pipe(pudl.helpers.fix_eia_na).pipe(
+            pudl.helpers.convert_to_date)
+
+
 ###############################################################################
 ###############################################################################
 # HELPER FUNCTIONS
@@ -73,31 +95,17 @@ def _yearly_to_monthly_records(df, md):
 
 class Coalmine(Tf):
     @reads(Tf.table_ref('fuel_receipts_costs', Stage.CLEAN))
-    def transformed(cmi_df):
-        """Transforms the coalmine_eia923 table.
+    def tidy(df):
+        return df
 
-        Args:
-            eia923_dfs (dict): Each entry in this dictionary of DataFrame objects
-                corresponds to a page from the EIA923 form, as reported in the
-                Excel spreadsheets they distribute.
-            eia923_transformed_dfs (dict): A dictionary of DataFrame objects in
-                which pages from EIA923 form (keys) correspond to normalized
-                DataFrames of values from that page (values)
+    COLUMNS_TO_KEEP = [
+        'mine_name',
+        'mine_type_code',
+        'state',
+        'county_id_fips',
+        'mine_id_msha']
 
-        Returns:
-            dict: eia923_transformed_dfs, a dictionary of DataFrame objects in
-            which pages from EIA923 form (keys) correspond to normalized
-            DataFrames of values from that page (values).
-
-        """
-        # These are the columns that we want to keep from FRC for the
-        # coal mine info table.
-        cmi_df = cmi_df[['mine_name',
-                         'mine_type_code',
-                         'state',
-                         'county_id_fips',
-                         'mine_id_msha']]
-
+    def clean(cmi_df):
         # If we actually *have* an MSHA ID for a mine, then we have a totally
         # unique identifier for that mine, and we can safely drop duplicates and
         # keep just one copy of that mine, no matter how different all the other
@@ -110,16 +118,13 @@ class Coalmine(Tf):
             subset=['mine_id_msha', ])
         cmi_df.drop(cmi_df[cmi_df['mine_id_msha'] > 0].index)
         cmi_df.append(cmi_with_msha)
-
-        cmi_df = cmi_df.drop_duplicates(subset=['mine_name',
-                                                'state',
-                                                'mine_id_msha',
-                                                'mine_type_code',
-                                                'county_id_fips'])
+        cmi_df.drop_duplicates()
 
         # drop null values if they occur in vital fields....
         cmi_df.dropna(subset=['mine_name', 'state'], inplace=True)
+        return cmi_df
 
+    def transformed(cmi_df):
         # we need an mine id to associate this coalmine table with the frc
         # table. In order to do that, we need to create a clean index, like
         # an autoincremeted id column in a db, which will later be used as a
@@ -208,20 +213,6 @@ class FuelReceiptsCosts(Tf):
         """Transforms the fuel_receipts_costs dataframe.
 
         Fuel cost is reported in cents per mmbtu. Converts cents to dollars.
-
-        Args:
-            eia923_dfs (dict): Each entry in this
-                dictionary of DataFrame objects corresponds to a page from the
-                EIA923 form, as reported in the Excel spreadsheets they distribute.
-            eia923_transformed_dfs (dict): A dictionary of DataFrame objects in
-                which pages from EIA923 form (keys) correspond to normalized
-                DataFrames of values from that page (values)
-
-        Returns:
-            dict: eia923_transformed_dfs, a dictionary of DataFrame objects in
-            which pages from EIA923 form (keys) correspond to normalized
-            DataFrames of values from that page (values)
-
         """
         # Drop fields we're not inserting into the fuel_receipts_costs_eia923
         # table.
@@ -298,82 +289,76 @@ class FuelReceiptsCosts(Tf):
 
 
 class Plants(Tf):
-    @reads(Tf.table_ref('plant_frame'))
-    def transformed(plant_info_df):
-        """Transforms the plants_eia923 table."""
-        # There are other fields being compiled in the plant_info_df from all of
-        # the various EIA923 spreadsheet pages. Do we want to add them to the
-        # database model too? E.g. capacity_mw, operator_name, etc.
-        plant_info_df = plant_info_df[['plant_id_eia',
-                                       'combined_heat_power',
-                                       'plant_state',
-                                       'eia_sector',
-                                       'naics_code',
-                                       'reporting_frequency',
-                                       'census_region',
-                                       'nerc_region',
-                                       'capacity_mw',
-                                       'report_year']]
+    """Builds eia923/plants table."""
+    # There are other fields being compiled in the plant_info_df from all of
+    # the various EIA923 spreadsheet pages. Do we want to add them to the
+    # database model too? E.g. capacity_mw, operator_name, etc.
+    COLUMNS_TO_KEEP = [
+        'plant_id_eia',
+        'combined_heat_power',
+        'plant_state',
+        'eia_sector',
+        'naics_code',
+        'reporting_frequency',
+        'census_region',
+        'nerc_region',
+        'capacity_mw',
+        'report_year']
 
-        plant_info_df['reporting_frequency'] = plant_info_df.reporting_frequency.replace({'M': 'monthly',
-                                                                                          'A': 'annual'})
+    # Apply transformation lambdas on the specified columns
+    COLUMN_CLEANUP_OPERATIONS = [
+        (lambda col: col.replace({'M': 'monthly', 'A': 'annual'}),
+         ['reporting_frequency']),
+
         # Since this is a plain Yes/No variable -- just make it a real sa.Boolean.
-        plant_info_df.combined_heat_power.replace({'N': False, 'Y': True},
-                                                  inplace=True)
+        (pudl.helpers.convert_to_boolean,
+         ['combined_heat_power']),
 
         # Get rid of excessive whitespace introduced to break long lines (ugh)
-        plant_info_df.census_region = plant_info_df.census_region.str.replace(
-            ' ', '')
-        plant_info_df.drop_duplicates(subset='plant_id_eia')
+        (lambda col: col.str.replace(' ', ''),
+         ['census_region']),
+    ]
 
-        plant_info_df['plant_id_eia'] = plant_info_df['plant_id_eia'].astype(
-            int)
-        return plant_info_df
+    COLUMN_DTYPES = {'plant_id_eia': int}
+
+    def transformed(df):
+        return df.drop_duplicates(subset='plant_id_eia')
 
 
 class GenerationFuel(Tf):
-    def transformed(gf_df):
-        """Transforms the generation_fuel_eia923 table."""
-        # Drop fields we're not inserting into the generation_fuel_eia923 table.
-        cols_to_drop = ['combined_heat_power',
-                        'plant_name_eia',
-                        'operator_name',
-                        'operator_id',
-                        'plant_state',
-                        'census_region',
-                        'nerc_region',
-                        'naics_code',
-                        'eia_sector',
-                        'sector_name',
-                        'fuel_unit',
-                        'total_fuel_consumption_quantity',
-                        'electric_fuel_consumption_quantity',
-                        'total_fuel_consumption_mmbtu',
-                        'elec_fuel_consumption_mmbtu',
-                        'net_generation_megawatthours']
-        gf_df.drop(cols_to_drop, axis=1, inplace=True)
+    """Builds eia923/generation_fuel table."""
 
-        # Convert the EIA923 DataFrame from yearly to monthly records.
-        gf_df = _yearly_to_monthly_records(gf_df, pc.month_dict_eia923)
-        # Replace the EIA923 NA value ('.') with a real NA value.
-        gf_df = pudl.helpers.fix_eia_na(gf_df)
+    COLUMNS_TO_DROP = [
+        'combined_heat_power',
+        'plant_name_eia',
+        'operator_name',
+        'operator_id',
+        'plant_state',
+        'census_region',
+        'nerc_region',
+        'naics_code',
+        'eia_sector',
+        'sector_name',
+        'fuel_unit',
+        'total_fuel_consumption_quantity',
+        'electric_fuel_consumption_quantity',
+        'total_fuel_consumption_mmbtu',
+        'elec_fuel_consumption_mmbtu',
+        'net_generation_megawatthours']
+
+    def table_specific_clean(df):
         # Remove "State fuel-level increment" records... which don't pertain to
         # any particular plant (they have plant_id_eia == operator_id == 99999)
-        gf_df = gf_df[gf_df.plant_id_eia != 99999]
+        df = df[df.plant_id_eia != 99999]
+        return df
 
+    def transformed(gf_df):
         gf_df['fuel_type_code_pudl'] = pudl.helpers.cleanstrings_series(gf_df.fuel_type,
                                                                         pc.fuel_type_eia923_gen_fuel_simple_map)
 
-        # Convert Year/Month columns into a single Date column...
-        return pudl.helpers.convert_to_date(gf_df)
-
 
 class BoilerFuel(Tf):
-    def transformed(bf_df):
-        """Transforms the boiler_fuel table."""
-        logging.info(f'boiler_fuel argument type: {type(bf_df)}')
-        logging.info(f'boiler_fuel.columns: {bf_df.columns}')
-        # Drop fields we're not inserting into the boiler_fuel_eia923 table.
+    def tidy(df):
         cols_to_drop = ['combined_heat_power',
                         'plant_name_eia',
                         'operator_name',
@@ -386,18 +371,17 @@ class BoilerFuel(Tf):
                         'sector_name',
                         'fuel_unit',
                         'total_fuel_consumption_quantity']
-        bf_df.drop(cols_to_drop, axis=1, inplace=True)
+        df.drop(cols_to_drop, axis=1, inplace=True)
+        df = _yearly_to_monthly_records(df, pc.month_dict_eia923)
+        return df
 
+    def transformed(bf_df):
+        # Drop fields we're not inserting into the boiler_fuel_eia923 table.
         bf_df.dropna(subset=['boiler_id', 'plant_id_eia'], inplace=True)
 
-        # Convert the EIA923 DataFrame from yearly to monthly records.
-        bf_df = _yearly_to_monthly_records(
-            bf_df, pc.month_dict_eia923)
         bf_df['fuel_type_code_pudl'] = pudl.helpers.cleanstrings_series(
             bf_df.fuel_type_code,
             pc.fuel_type_eia923_boiler_fuel_simple_map)
-        # Replace the EIA923 NA value ('.') with a real NA value.
-        bf_df = pudl.helpers.fix_eia_na(bf_df)
 
         # Convert Year/Month columns into a single Date column...
         return pudl.helpers.convert_to_date(bf_df)
@@ -405,31 +389,31 @@ class BoilerFuel(Tf):
 
 class Generation(Tf):
     @reads(Tf.table_ref('generator'))
-    def transformed(gen_df):
-        """Transforms the generation_eia923 table."""
-        gen_df = (
-            gen_df
-            .dropna(subset=['generator_id'])
-            .drop(['combined_heat_power',
-                   'plant_name_eia',
-                   'operator_name',
-                   'operator_id',
-                   'plant_state',
-                   'census_region',
-                   'nerc_region',
-                   'naics_code',
-                   'eia_sector',
-                   'sector_name',
-                   'net_generation_mwh_year_to_date'],
-                  axis="columns")
-            .pipe(_yearly_to_monthly_records, pc.month_dict_eia923)
-            .pipe(pudl.helpers.fix_eia_na)
-            .pipe(pudl.helpers.convert_to_date)
-        )
+    def tidy(df):
+        return df
+    # TODO(rousik): these tidy-shims when tables are renamed are silly, maybe
+    # we can solve this better.
+
+    COLUMNS_TO_DROP = [
+        'combined_heat_power',
+        'plant_name_eia',
+        'operator_name',
+        'operator_id',
+        'plant_state',
+        'census_region',
+        'nerc_region',
+        'naics_code',
+        'eia_sector',
+        'sector_name',
+        'net_generation_mwh_year_to_date']
+
+    def transformed(df):
+        df = df.dropna(subset=['generator_id']).pipe(
+            pudl.helpers.convert_to_date)
         # There are a few hundred (out of a few hundred thousand) records which
         # have duplicate records for a given generator/date combo. However, in all
         # cases one of them has no data (net_generation_mwh) associated with it,
         # so it's pretty clear which one to drop.
         unique_subset = ["report_date", "plant_id_eia", "generator_id"]
-        dupes = gen_df[gen_df.duplicated(subset=unique_subset, keep=False)]
-        return gen_df.drop(dupes.net_generation_mwh.isna().index)
+        dupes = df[df.duplicated(subset=unique_subset, keep=False)]
+        return df.drop(dupes.net_generation_mwh.isna().index)
