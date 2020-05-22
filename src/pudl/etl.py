@@ -206,11 +206,21 @@ def _etl_eia(etl_params, datapkg_dir, pudl_settings):
         data_dir).extract(eia923_years)
     eia860_raw_dfs = pudl.extract.eia860.Extractor(
         data_dir).extract(eia860_years)
+
+    # Store pickled dataframes (RAW)
+    for df_name, df in {**eia860_raw_dfs, **eia923_raw_dfs}:
+        df.to_pickle(f'{pudl_settings["temp_files"]}/{df_name}.RAW')
+
     # Transform EIA forms 923, 860
     eia923_transformed_dfs = pudl.transform.eia923.transform(
         eia923_raw_dfs, eia923_tables=eia923_tables)
     eia860_transformed_dfs = pudl.transform.eia860.transform(
         eia860_raw_dfs, eia860_tables=eia860_tables)
+
+    # Store pickled dataframes (TRANSFORMED)
+    for df_name, df in {**eia860_raw_dfs, **eia923_raw_dfs}:
+        df.to_pickle(f'{pudl_settings["temp_files"]}/{df_name}.RAW')
+
     # create an eia transformed dfs dictionary
     eia_transformed_dfs = eia860_transformed_dfs.copy()
     eia_transformed_dfs.update(eia923_transformed_dfs.copy())
