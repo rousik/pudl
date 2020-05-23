@@ -137,15 +137,12 @@ class PudlTableTransformer(object):
 
     @classmethod
     def has_transformations(cls):
-        """Returns True if any transformer methods corresponding to known Stage exist."""
-        for attr in dir(cls):
-            if attr.upper() in Stage.__members__:
-                return True
-        return False
+        """Returns True if any methods annotated with @emits exist."""
+        return bool(cls.get_transformations())
 
     @classmethod
     def get_subclasses_with_transformations(cls):
-        """Returns all subclasses that have defined transformations."""
+        """Returns all subclasses that have methods annotated with @emits."""
         res = set()
         for sc in cls.__subclasses__():
             if sc.has_transformations():
@@ -154,25 +151,38 @@ class PudlTableTransformer(object):
         return res
 
     @classmethod
+    def get_transformations(cls):
+        """Returns {Stage: method} map."""
+        tfs = {}
+        for attr_name in dir(cls):
+            fcn = getattr(cls, attr_name)
+            emits_stage = getattr(fcn, 'emits_stage', None)
+            if emits_stage:
+                tfs[emits_stage] = fcn
+        return tfs
+
+    @classmethod
     def generate_tasks(cls):
-        attrs = dir(cls)
         last_stage = Stage.RAW
         tasks = []
-        known_stages = []
-        for name, stage in Stage.__members__.items():
-            if name.lower() in attrs:
-                known_stages.append(stage)
-                inputs = []
-                fcn = getattr(cls, name.lower())
-                if hasattr(fcn, 'pudl_table_references'):
-                    # @reads decorator defines what the inputs should be.
-                    inputs = fcn.pudl_table_references
-                else:
-                    inputs = [cls.get_stage(last_stage)]
+        stage_functions = cls.get_transformations()
 
-                tasks.append(
-                    PudlTask(inputs=inputs, output=cls.get_stage(stage), function=fcn))
-                last_stage = stage
+        # Process transformations in the Stage order.
+        # TODO(rousik): we could potentially associate Stage.TRANSFORMED
+        # with the last available stage there is.
+        for stage in Stage.__members__.items():
+            fcn = stage_functions.get(stage, None)
+            if not fcn:
+                continue
+
+            if hasattr(fcn, 'pudl_table_references'):
+                # @reads decorator defines what the inputs should be.
+                inputs = fcn.pudl_table_references
+            else:
+                inputs = [cls.get_stage(last_stage)]
+            tasks.append(
+                PudlTask(inputs=inputs, output=cls.get_stage(stage), function=fcn))
+            last_stage = stage
         return tasks
 
 

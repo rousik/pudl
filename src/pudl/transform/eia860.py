@@ -4,11 +4,10 @@ import logging
 
 import numpy as np
 import pandas as pd
-
 import pudl
 import pudl.constants as pc
 import pudl.workflow.task as task
-from pudl.workflow.task import reads
+from pudl.workflow.task import Stage, emits, reads
 
 # TODO(rousik): simplify the above import
 
@@ -28,31 +27,42 @@ Tf = task.PudlTableTransformer.for_dataset('eia860')
 # are valid and should probably run the validation on all known objects.
 
 
-class CommonCleanupMixin(object):
-    """This mixin implements some convenience operations for transforming eia tables.
+class TableCleanupMixin(object):
+    """This mixin provides some common functionality for table cleanup transformation.
 
-    This introduces standardized clean() method which:
-    1. applies fix_eia_na and convert_to_date helpers
-    2. cleans individual columns using COLUMN_CLEANUP_OPERATIONS
-    3. then calls table_specific_clean() which can be overriden.
+    COLUMN_DTYPES map should contain column name to dtype mapping. This will be used
+    to create DTYPE_ASSIGNED stage that is fed to custom transformations.
 
-    COLUMN_CLEANUP_OPERATIONS should contain (operator, columndef) tuples where
-    columndef is either single column name (str) or list of column names and operator
-    is a lambda function that takes pd.DataFrame and returns pd.DataFrame.
+    COLUMN_CLEANUP_OPERATIONS is list of (operator, columndef) tuples and is suitable
+    for simple one-liner transformations that should be applied to individual columns
+    or list of columns.
+    - operator is a callable that takes single pd.DataFrame argument. It will contain
+      column values to transform.
+    - columndef is either column name or list of column names on which the operator
+      should be applied.
 
-    The expectation here is that operator will be given a single-column (based on
-    the columndef), apply changes and the results will be assigned to the column.
+    COLUMNS_TO_KEEP can contain list of columns that should be retained. It will only
+    be used if it is non-empty. This is going to be done during cleanup phase.
 
-    After the cleanup phase, dtypes are assigned to specific columns using the
-    mapping in COLUMN_DTYPES {column name: type}.
+    COLUMNS_TO_DROP can contain list of columns that should be dropped. It will only
+    be used if it is non-empty. This is going to be done during cleanup phase.
 
-    Ultimately, no-op transformed() method is defined that can be overriden by
-    subclasses.
+    Cleanup stage is composed of the following steps:
+    1. apply column restrictions using COLUMNS_TO_KEEP and COLUMNS_TO_DROP
+    2. call early_clean(df) method that subclasses can modify
+    3. apply operations from COLUMN_CLEANUP_OPERATIONS list
+    4. call late_clean(df) method that subclasses can modify
     """
     # TODO(rousik): this could be easily used as a common ancestor class for
     # variety of transformers. If we use @emits annotation instead of finding
     # methods by name we might avoid the use of Mixin, although we would still
     # need a way to skip over the non-instantiated class.
+
+    COLUMNS_TO_KEEP = []
+    """If non-empty, only listed columns will be retained."""
+
+    COLUMNS_TO_DROP = []
+    """If non-empty, listed columns will be dropped."""
 
     COLUMN_DTYPES = {}
     """Dtypes that should be assigned to columns before transform stage."""
@@ -70,34 +80,45 @@ class CommonCleanupMixin(object):
     """
 
     @classmethod
-    def clean(cls, df):
-        df = cls.common_clean(df)
+    @emits(Stage.CLEAN)
+    def generic_table_cleanup(cls, df):
+        if cls.COLUMNS_TO_KEEP:
+            df = df[[cls.COLUMNS_TO_KEEP]]
+        if cls.COLUMNS_TO_DROP:
+            df.drop(cls.COLUMNS_TO_DROP, axis=1, inplace=True)
+        df = cls.early_clean(df)
         for operator, columndef in cls.COLUMN_CLEANUP_OPERATIONS:
             cols = columndef
             if type(columndef) == str:
                 cols = [columndef]
             for c in cols:
                 df[c] = operator(df[c])
-        df = cls.table_specific_clean(df)
+        df = cls.late_clean(df)
         return df
 
     @classmethod
-    def common_clean(cls, df):
+    @emits(Stage.ASSIGN_DTYPE)
+    def assign_dtype(cls, df):
+        return df.astype(cls.COLUMN_DTYPES)
+
+    @staticmethod
+    def early_clean(df):
+        return df
+
+    @staticmethod
+    def late_clean(df):
+        return df
+
+
+class LocalMixin(TableCleanupMixin):
+    """Runs common cleanup methods for EIA860 tables."""
+
+    @staticmethod
+    def early_clean(df):
         return df.pipe(pudl.helpers.fix_eia_na).pipe(pudl.helpers.convert_to_date)
 
-    @classmethod
-    def table_specific_clean(cls, df):
-        return df
 
-    @classmethod
-    def assign_dtype(self, df):
-        return df.astype(self.COLUMN_DTYPES)
-
-    def transformed(df):
-        return df
-
-
-class Ownership(CommonCleanupMixin, Tf):
+class Ownership(LocalMixin, Tf):
     """Builds eia860/ownership table."""
 
     COLUMN_DTYPES = {
@@ -125,7 +146,7 @@ class Ownership(CommonCleanupMixin, Tf):
         return df
 
 
-class Generators(CommonCleanupMixin, Tf):
+class Generators(LocalMixin, Tf):
     """Builds eia860/generators table."""
     @reads(
         Tf.table_ref('generator_proposed'),
@@ -215,7 +236,8 @@ class Generators(CommonCleanupMixin, Tf):
         'utility_id_eia': int,
     }
 
-    def transformed(df):
+    @emits(Stage.TRANSFORMED)
+    def transform(df):
         return (df.pipe(pudl.helpers.month_year_to_date).
                 assign(fuel_type_code_pudl=lambda x: pudl.helpers.cleanstrings_series(
                     x['energy_source_code_1'], pc.fuel_type_eia860_simple_map)).
@@ -226,7 +248,7 @@ class Generators(CommonCleanupMixin, Tf):
         # TODO(rousik): do we need to call convert_to_date again here?
 
 
-class Plants(CommonCleanupMixin, Tf):
+class Plants(LocalMixin, Tf):
     """Builds eia860/plants table."""
 
     COLUMN_CLEANUP_OPERATIONS = [
@@ -276,11 +298,12 @@ class Plants(CommonCleanupMixin, Tf):
         )
         return df
 
-    def transformed(df):
+    @emits(Stage.TRANSFORMED)
+    def transform(df):
         return df.pipe(pudl.helpers.convert_to_date)
 
 
-class BoilerGeneratorAssn(CommonCleanupMixin, Tf):
+class BoilerGeneratorAssn(LocalMixin, Tf):
     """Builds eia860/boiler_generator_assn table."""
 
     COLUMN_DTYPES = {
@@ -292,16 +315,15 @@ class BoilerGeneratorAssn(CommonCleanupMixin, Tf):
         # TODO(rousik): is int-typing of this necessary?
     }
 
-    def tidy(df):
-        """Extracts columns of interest from the boiler table."""
-        return df[[
-            'report_year',
-            'utility_id_eia',
-            'plant_id_eia',
-            'boiler_id',
-            'generator_id']]
+    COLUMNS_TO_KEEP = [
+        'report_year',
+        'utility_id_eia',
+        'plant_id_eia',
+        'boiler_id',
+        'generator_id']
 
-    def clean(df):
+    @staticmethod
+    def late_clean(df):
         # There are some bad (non-data) lines in some of the boiler generator
         # data files (notes from EIA) which are messing up the import. Need to
         # identify and drop them early on.
@@ -311,7 +333,8 @@ class BoilerGeneratorAssn(CommonCleanupMixin, Tf):
         df['plant_id_eia'] = df['plant_id_eia'].astype(int)
         return df
 
-    def transformed(df):
+    @emits(Stage.TRANSFORMED)
+    def transform(df):
         """Transforms boiler_generator_assn table."""
         # This drop_duplicates isn't removing all duplicates
         df = df.drop_duplicates()
@@ -320,8 +343,9 @@ class BoilerGeneratorAssn(CommonCleanupMixin, Tf):
         return df
 
 
-class Utilities(CommonCleanupMixin, Tf):
+class Utilities(LocalMixin, Tf):
     @reads(Tf.table_ref('utility'))
+    @emits(Stage.TIDY)
     def tidy(df):
         """Pulls utility:RAW into utilities:TIDY."""
         return df
@@ -341,5 +365,7 @@ class Utilities(CommonCleanupMixin, Tf):
 
     COLUMN_DTYPES = {'utility_id_eia': int}
 
-    def transformed(df):
+    @emits(Stage.TRANSFORMED)
+    def transform(df):
         return pudl.helpers.convert_to_date(df)
+    # TODO(rousik): maybe convert_to_date is not necessary anymore

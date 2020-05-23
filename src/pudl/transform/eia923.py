@@ -4,33 +4,28 @@ import logging
 
 import numpy as np
 import pandas as pd
-
 import pudl
 import pudl.constants as pc
 import pudl.workflow.task as task
-from pudl.workflow.task import Stage, reads
+from pudl.workflow.task import Stage, emits, reads
 
 logger = logging.getLogger(__name__)
 Tf = task.PudlTableTransformer.for_dataset('eia923')
 
 
-class CommonMixin(pudl.transform.eia860.CommonCleanupMixin):
+class LocalMixin(pudl.transform.eia860.TableCleanupMixin):
+    """Applies common cleanup on EIA923 tables.
 
-    COLUMNS_TO_DROP = None
-    """List of columns that should be removed from the raw table."""
+    In addition ot the standard data fixes, EIA923 contains columns that have
+    monthly values in ${col}_${month_name}. We will break it into one-row per
+    month, storing the values in ${col} and storing the month in report_month
+    column.
+    """
 
-    COLUMNS_TO_KEEP = None
-    """List of columns that should be kept. Needs to be non-empty to apply."""
-
-    @classmethod
-    def common_clean(cls, df):
-        if cls.COLUMNS_TO_DROP:
-            df.drop(cls.COLUMNS_TO_DROP, axis=1, inplace=True)
-        if cls.COLUMNS_TO_KEEP:
-            df = df[[cls.COLUMNS_TO_KEEP]]
+    @staticmethod
+    def early_clean(df):
         df = _yearly_to_monthly_records(df, pc.month_dict_eia923)
-        df = df.pipe(pudl.helpers.fix_eia_na).pipe(
-            pudl.helpers.convert_to_date)
+        return df.pipe(pudl.helpers.fix_eia_na).pipe(pudl.helpers.convert_to_date)
 
 
 ###############################################################################
@@ -93,7 +88,10 @@ def _yearly_to_monthly_records(df, md):
     return all_years
 
 
-class Coalmine(Tf):
+# TODO(rousik): break the diamond dependency between fuel_receipts_costs and coalmines
+# by constructing temporary table that reads fuel_receipts_costs, applies the cleanup
+# and then have both Coalmine and FuelReceiptsCosts read from that.
+class Coalmine(LocalMixin, Tf):
     @reads(Tf.table_ref('fuel_receipts_costs', Stage.CLEAN))
     def tidy(df):
         return df
@@ -105,7 +103,8 @@ class Coalmine(Tf):
         'county_id_fips',
         'mine_id_msha']
 
-    def clean(cmi_df):
+    @staticmethod
+    def late_clean(cmi_df):
         # If we actually *have* an MSHA ID for a mine, then we have a totally
         # unique identifier for that mine, and we can safely drop duplicates and
         # keep just one copy of that mine, no matter how different all the other
@@ -124,7 +123,8 @@ class Coalmine(Tf):
         cmi_df.dropna(subset=['mine_name', 'state'], inplace=True)
         return cmi_df
 
-    def transformed(cmi_df):
+    @emits(Stage.TRANSFORMED)
+    def transform(cmi_df):
         # we need an mine id to associate this coalmine table with the frc
         # table. In order to do that, we need to create a clean index, like
         # an autoincremeted id column in a db, which will later be used as a
@@ -140,7 +140,7 @@ class Coalmine(Tf):
         return cmi_df.reset_index()
 
 
-class FuelReceiptsCosts(Tf):
+class FuelReceiptsCosts(LocalMixin, Tf):
     def clean(cmi_df):
         """Cleans up the coalmine_eia923 table.
 
@@ -288,7 +288,7 @@ class FuelReceiptsCosts(Tf):
 ###############################################################################
 
 
-class Plants(Tf):
+class Plants(LocalMixin, Tf):
     """Builds eia923/plants table."""
     # There are other fields being compiled in the plant_info_df from all of
     # the various EIA923 spreadsheet pages. Do we want to add them to the
@@ -325,7 +325,7 @@ class Plants(Tf):
         return df.drop_duplicates(subset='plant_id_eia')
 
 
-class GenerationFuel(Tf):
+class GenerationFuel(LocalMixin, Tf):
     """Builds eia923/generation_fuel table."""
 
     COLUMNS_TO_DROP = [
@@ -357,25 +357,24 @@ class GenerationFuel(Tf):
                                                                         pc.fuel_type_eia923_gen_fuel_simple_map)
 
 
-class BoilerFuel(Tf):
-    def tidy(df):
-        cols_to_drop = ['combined_heat_power',
-                        'plant_name_eia',
-                        'operator_name',
-                        'operator_id',
-                        'plant_state',
-                        'census_region',
-                        'nerc_region',
-                        'naics_code',
-                        'eia_sector',
-                        'sector_name',
-                        'fuel_unit',
-                        'total_fuel_consumption_quantity']
-        df.drop(cols_to_drop, axis=1, inplace=True)
-        df = _yearly_to_monthly_records(df, pc.month_dict_eia923)
-        return df
+class BoilerFuel(LocalMixin, Tf):
 
-    def transformed(bf_df):
+    COLUMNS_TO_DROP = [
+        'combined_heat_power',
+        'plant_name_eia',
+        'operator_name',
+        'operator_id',
+        'plant_state',
+        'census_region',
+        'nerc_region',
+        'naics_code',
+        'eia_sector',
+        'sector_name',
+        'fuel_unit',
+        'total_fuel_consumption_quantity']
+
+    @staticmethod
+    def late_clean(bf_df):
         # Drop fields we're not inserting into the boiler_fuel_eia923 table.
         bf_df.dropna(subset=['boiler_id', 'plant_id_eia'], inplace=True)
 
@@ -387,12 +386,13 @@ class BoilerFuel(Tf):
         return pudl.helpers.convert_to_date(bf_df)
 
 
-class Generation(Tf):
+class Generation(LocalMixin, Tf):
     @reads(Tf.table_ref('generator'))
     def tidy(df):
         return df
     # TODO(rousik): these tidy-shims when tables are renamed are silly, maybe
-    # we can solve this better.
+    # we can solve this better, e.g. by renaming the page names in the excel
+    # spreadsheet metadata.
 
     COLUMNS_TO_DROP = [
         'combined_heat_power',
@@ -407,7 +407,7 @@ class Generation(Tf):
         'sector_name',
         'net_generation_mwh_year_to_date']
 
-    def transformed(df):
+    def late_clean(df):
         df = df.dropna(subset=['generator_id']).pipe(
             pudl.helpers.convert_to_date)
         # There are a few hundred (out of a few hundred thousand) records which
