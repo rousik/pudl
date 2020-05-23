@@ -27,6 +27,7 @@ class Stage(Enum):
     CLEAN = auto()
     ASSIGN_DTYPE = auto()
     TRANSFORMED = auto()
+    FINAL = auto()
     # TODO(rousik): dtype assignment happens both before transform and after
     # transform
 
@@ -170,7 +171,7 @@ class PudlTableTransformer(object):
         # Process transformations in the Stage order.
         # TODO(rousik): we could potentially associate Stage.TRANSFORMED
         # with the last available stage there is.
-        for stage in Stage.__members__.items():
+        for stage in Stage.__members__.values():
             fcn = stage_functions.get(stage, None)
             if not fcn:
                 continue
@@ -183,6 +184,7 @@ class PudlTableTransformer(object):
             tasks.append(
                 PudlTask(inputs=inputs, output=cls.get_stage(stage), function=fcn))
             last_stage = stage
+
         return tasks
 
 
