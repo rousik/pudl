@@ -93,6 +93,7 @@ def _yearly_to_monthly_records(df, md):
 # and then have both Coalmine and FuelReceiptsCosts read from that.
 class Coalmine(LocalMixin, Tf):
     @reads(Tf.table_ref('fuel_receipts_costs', Stage.CLEAN))
+    @emits(Stage.TIDY)
     def tidy(df):
         return df
 
@@ -102,6 +103,15 @@ class Coalmine(LocalMixin, Tf):
         'state',
         'county_id_fips',
         'mine_id_msha']
+
+    @staticmethod
+    def early_clean(cmi_df):
+        # _yearly_to_monthly_records fails when it is run more than once because
+        # it needs report_year column. Because we are reading CLEAN table as our
+        # input, we should not do any early_clean() here.
+        # TODO(rousik): Maybe we can make _yearly_to_monthly_records a no-op
+        # when relevant columns are not found to avoid this potential issue.
+        return cmi_df
 
     @staticmethod
     def late_clean(cmi_df):
@@ -387,12 +397,20 @@ class BoilerFuel(LocalMixin, Tf):
 
 
 class Generation(LocalMixin, Tf):
+
     @reads(Tf.table_ref('generator'))
+    @emits(Stage.TIDY)
     def tidy(df):
         return df
     # TODO(rousik): these tidy-shims when tables are renamed are silly, maybe
     # we can solve this better, e.g. by renaming the page names in the excel
     # spreadsheet metadata.
+
+    # Or, alternatively, we could just have class level
+    #
+    # RAW_SOURCE = Tf.table_ref('generator')
+    #
+    # which tells us which RAW source we should be reading.
 
     COLUMNS_TO_DROP = [
         'combined_heat_power',
