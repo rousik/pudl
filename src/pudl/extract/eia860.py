@@ -9,7 +9,6 @@ This code is for use analyzing EIA Form 860 data.
 import logging
 
 import pandas as pd
-
 import pudl.extract.excel as excel
 
 logger = logging.getLogger(__name__)
@@ -23,7 +22,7 @@ class Extractor(excel.GenericExtractor):
     PAGE_GLOBS = {
         'boiler_generator_assn': '*EnviroAssoc*',
         'utility': '*Utility*',
-        'plant': '*Plant*',
+        'plants': '*Plant*',
         'generator_existing': '*Generat*',
         'generator_proposed': '*Generat*',
         'generator_retired': '*Generat*',
