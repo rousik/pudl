@@ -6,21 +6,18 @@ import numpy as np
 import pandas as pd
 import pudl
 import pudl.constants as pc
-import pudl.workflow.task as task
-from pudl.workflow.task import Stage, emits, reads
+from pudl.transform.generic import TableTransformer
+from pudl.workflow.task import Stage, emits, reads, transformer
 
 logger = logging.getLogger(__name__)
-Tf = task.PudlTableTransformer.for_dataset('eia923')
 
 
-class LocalMixin(pudl.transform.eia860.TableCleanupMixin):
-    """Applies common cleanup on EIA923 tables.
+# TODO(rousik): this creates eia923/tf task which will fail, but ideally
+# we will not create these tasks for these intermediate class instantiations.
 
-    In addition ot the standard data fixes, EIA923 contains columns that have
-    monthly values in ${col}_${month_name}. We will break it into one-row per
-    month, storing the values in ${col} and storing the month in report_month
-    column.
-    """
+class Tf(TableTransformer):
+    """Generic logic for eia923 table cleanup/transformations."""
+    DATASET = 'eia923'
 
     @staticmethod
     def early_clean(df):
@@ -91,7 +88,13 @@ def _yearly_to_monthly_records(df, md):
 # TODO(rousik): break the diamond dependency between fuel_receipts_costs and coalmines
 # by constructing temporary table that reads fuel_receipts_costs, applies the cleanup
 # and then have both Coalmine and FuelReceiptsCosts read from that.
-class Coalmine(LocalMixin, Tf):
+
+# TODO(rousik): Coalmine should really be moved to entity extraction for cleaner
+# logic here.
+
+
+@transformer
+class Coalmine(Tf):
     @reads(Tf.table_ref('fuel_receipts_costs', Stage.CLEAN))
     @emits(Stage.TIDY)
     def tidy(df):
@@ -150,7 +153,8 @@ class Coalmine(LocalMixin, Tf):
         return cmi_df.reset_index()
 
 
-class FuelReceiptsCosts(LocalMixin, Tf):
+@transformer
+class FuelReceiptsCosts(Tf):
     def clean(cmi_df):
         """Cleans up the coalmine_eia923 table.
 
@@ -298,7 +302,8 @@ class FuelReceiptsCosts(LocalMixin, Tf):
 ###############################################################################
 
 
-class Plants(LocalMixin, Tf):
+@transformer
+class Plants(Tf):
     """Builds eia923/plants table."""
     # There are other fields being compiled in the plant_info_df from all of
     # the various EIA923 spreadsheet pages. Do we want to add them to the
@@ -335,7 +340,8 @@ class Plants(LocalMixin, Tf):
         return df.drop_duplicates(subset='plant_id_eia')
 
 
-class GenerationFuel(LocalMixin, Tf):
+@transformer
+class GenerationFuel(Tf):
     """Builds eia923/generation_fuel table."""
 
     COLUMNS_TO_DROP = [
@@ -367,7 +373,8 @@ class GenerationFuel(LocalMixin, Tf):
                                                                         pc.fuel_type_eia923_gen_fuel_simple_map)
 
 
-class BoilerFuel(LocalMixin, Tf):
+@transformer
+class BoilerFuel(Tf):
 
     COLUMNS_TO_DROP = [
         'combined_heat_power',
@@ -396,7 +403,8 @@ class BoilerFuel(LocalMixin, Tf):
         return pudl.helpers.convert_to_date(bf_df)
 
 
-class Generation(LocalMixin, Tf):
+@transformer
+class Generation(Tf):
 
     @reads(Tf.table_ref('generator'))
     @emits(Stage.TIDY)

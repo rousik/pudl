@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 import pudl
 import pudl.constants as pc
-import pudl.workflow.task as task
-from pudl.workflow.task import Stage, emits, reads
+from pudl.transform.generic import TableTransformer
+from pudl.workflow.task import Stage, emits, reads, transformer
 
 # TODO(rousik): simplify the above import
 
@@ -20,105 +20,16 @@ logger = logging.getLogger(__name__)
 # boiler_generator_assn
 # utilities
 
-Tf = task.PudlTableTransformer.for_dataset('eia860')
-
-# TODO(rousik): it is easy to mess up types in COLUMN_DTYPES
-# and/or COLUMN_CLEANUP_OPERATIONS. We need to ensure that the contents
-# are valid and should probably run the validation on all known objects.
-
-
-class TableCleanupMixin(object):
-    """This mixin provides some common functionality for table cleanup transformation.
-
-    COLUMN_DTYPES map should contain column name to dtype mapping. This will be used
-    to create DTYPE_ASSIGNED stage that is fed to custom transformations.
-
-    COLUMN_CLEANUP_OPERATIONS is list of (operator, columndef) tuples and is suitable
-    for simple one-liner transformations that should be applied to individual columns
-    or list of columns.
-    - operator is a callable that takes single pd.DataFrame argument. It will contain
-      column values to transform.
-    - columndef is either column name or list of column names on which the operator
-      should be applied.
-
-    COLUMNS_TO_KEEP can contain list of columns that should be retained. It will only
-    be used if it is non-empty. This is going to be done during cleanup phase.
-
-    COLUMNS_TO_DROP can contain list of columns that should be dropped. It will only
-    be used if it is non-empty. This is going to be done during cleanup phase.
-
-    Cleanup stage is composed of the following steps:
-    1. apply column restrictions using COLUMNS_TO_KEEP and COLUMNS_TO_DROP
-    2. call early_clean(df) method that subclasses can modify
-    3. apply operations from COLUMN_CLEANUP_OPERATIONS list
-    4. call late_clean(df) method that subclasses can modify
-    """
-    # TODO(rousik): this could be easily used as a common ancestor class for
-    # variety of transformers. If we use @emits annotation instead of finding
-    # methods by name we might avoid the use of Mixin, although we would still
-    # need a way to skip over the non-instantiated class.
-
-    COLUMNS_TO_KEEP = []
-    """If non-empty, only listed columns will be retained."""
-
-    COLUMNS_TO_DROP = []
-    """If non-empty, listed columns will be dropped."""
-
-    COLUMN_DTYPES = {}
-    """Dtypes that should be assigned to columns before transform stage."""
-
-    COLUMN_CLEANUP_OPERATIONS = []
-    """Contains tuples of (operator, columndef).
-
-    columndef is either single column name or list of columns.
-
-    operator is a method that takes DataFrame (with a single column) and transforms it.
-    These operators will be applied in a loop as follows:
-
-    for col_name in columndef:
-      df[col_name] = operator(df[col_name])
-    """
-
-    @classmethod
-    @emits(Stage.CLEAN)
-    def generic_table_cleanup(cls, df):
-        if cls.COLUMNS_TO_KEEP:
-            df = df[[cls.COLUMNS_TO_KEEP]]
-        if cls.COLUMNS_TO_DROP:
-            df.drop(cls.COLUMNS_TO_DROP, axis=1, inplace=True)
-        df = cls.early_clean(df)
-        for operator, columndef in cls.COLUMN_CLEANUP_OPERATIONS:
-            cols = columndef
-            if type(columndef) == str:
-                cols = [columndef]
-            for c in cols:
-                df[c] = operator(df[c])
-        df = cls.late_clean(df)
-        return df
-
-    @classmethod
-    @emits(Stage.ASSIGN_DTYPE)
-    def assign_dtype(cls, df):
-        return df.astype(cls.COLUMN_DTYPES)
-
-    @staticmethod
-    def early_clean(df):
-        return df
-
-    @staticmethod
-    def late_clean(df):
-        return df
-
-
-class LocalMixin(TableCleanupMixin):
-    """Runs common cleanup methods for EIA860 tables."""
+class Tf(TableTransformer):
+    DATASET = 'eia860'
 
     @staticmethod
     def early_clean(df):
         return df.pipe(pudl.helpers.fix_eia_na).pipe(pudl.helpers.convert_to_date)
 
 
-class Ownership(LocalMixin, Tf):
+@transformer
+class Ownership(Tf):
     """Builds eia860/ownership table."""
 
     COLUMN_DTYPES = {
@@ -146,12 +57,15 @@ class Ownership(LocalMixin, Tf):
         return df
 
 
-class Generators(LocalMixin, Tf):
+@transformer
+class Generators(Tf):
     """Builds eia860/generators table."""
+
     @reads(
         Tf.table_ref('generator_proposed'),
         Tf.table_ref('generator_existing'),
         Tf.table_ref('generator_retired'))
+    @emits(Stage.TIDY)
     def tidy(gp_df, ge_df, gr_df):
         """Creates generators table."""
         # Groupby objects were creating chained assignment warning that is N/A
@@ -248,7 +162,8 @@ class Generators(LocalMixin, Tf):
         # TODO(rousik): do we need to call convert_to_date again here?
 
 
-class Plants(LocalMixin, Tf):
+@transformer
+class Plants(Tf):
     """Builds eia860/plants table."""
 
     COLUMN_CLEANUP_OPERATIONS = [
@@ -303,7 +218,8 @@ class Plants(LocalMixin, Tf):
         return df.pipe(pudl.helpers.convert_to_date)
 
 
-class BoilerGeneratorAssn(LocalMixin, Tf):
+@transformer
+class BoilerGeneratorAssn(Tf):
     """Builds eia860/boiler_generator_assn table."""
 
     COLUMN_DTYPES = {
@@ -343,7 +259,8 @@ class BoilerGeneratorAssn(LocalMixin, Tf):
         return df
 
 
-class Utilities(LocalMixin, Tf):
+@transformer
+class Utilities(Tf):
     @reads(Tf.table_ref('utility'))
     @emits(Stage.TIDY)
     def tidy(df):

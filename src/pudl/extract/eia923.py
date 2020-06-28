@@ -19,7 +19,7 @@ class Extractor(excel.GenericExtractor):
     """Extractor for EIA form 923."""
 
     METADATA = excel.Metadata('eia923')
-    BLACKLISTED_PAGES = ['plant_frame']
+    BLACKLISTED_PAGES = ['plants']
     # BLACKLISTED_PAGES = ['plant_frame']
 
     # Pages not supported by the metadata:

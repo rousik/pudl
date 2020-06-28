@@ -18,18 +18,16 @@ data from:
 """
 
 import logging
+import os
 import pathlib
 import time
 import uuid
 
 import pandas as pd
-from prefect.engine.executors import LocalExecutor
-from prefect.utilities.debug import raise_on_exception
-
 import pudl
 import pudl.constants as pc
-import pudl.workflow.luigi
 import pudl.workflow.prefect
+from prefect.engine.executors import LocalExecutor
 from pudl.workflow.task import Stage
 
 logger = logging.getLogger(__name__)
@@ -205,48 +203,39 @@ def _etl_eia(etl_params, datapkg_dir, pudl_settings):
     # generate CSVs for the static EIA tables, return the list of tables
     static_tables = _load_static_tables_eia(datapkg_dir)
 
-    # Extract EIA forms 923, 860
     data_dir = pudl_settings["data_dir"]
-
-    pudl.extract.eia923.Extractor(
-        data_dir).register_workflow_tasks(eia923_years)
-    pudl.extract.eia860.Extractor(
-        data_dir).register_workflow_tasks(eia860_years)
+    extractors = [
+        pudl.extract.eia923.Extractor(data_dir, eia923_years),
+        pudl.extract.eia860.Extractor(data_dir, eia860_years)
+    ]
 
     # eia860 and eia923 transform are expressed as tasks.
-    flow = pudl.workflow.prefect.build_flow(pudl_settings["temp_dir"])
-    # TODO(rousik): in general, we should
-    # TODO(rousik): consider cache reuse/invalidation rules. In general, we should
-    # not reuse temp dataframes in subsequent runs, unless we specify run_id that
-    # is the same, in which case we should simply
+    flow = pudl.workflow.prefect.build_flow(
+        pudl_settings["temp_files"],
+        extractors=extractors)
+    # --run_id $stuff can be used to fix the id of the run and ensure that pre-existing
+    # temp files stored in temp_files directory will be reused.
 
-    # TODO(rousik): extract this path to run-time flag, allow for nuking the temp storage
-    # Maybe this could be stored somewhere in pudl_settings. We may also consider what
-    # are the caching/invalidation rules, e.g. we may either consider pre-existing files
-    # to be okay as long as the ETL configuration is the same or we can simply create
-    # a flag that will allow us to say which Stages/kinds of temp files should be
-    # kept or deleted.
+    # TODO(rousik): we might want to add extra flag that will kill or keep temp files
+    # for specific stages only.
+    flow_state = flow.run(executor=LocalExecutor())
+    flow.visualize(flow_state, format='svg',
+                   filename=os.path.join(pudl_settings["temp_files"], "prefect-run.svg"))
+    flow.visualize(flow_state)
 
-    # TODO(rousik): ideally, we would only add tasks necessary to create specific
-    # output tables. Think about how could we do that.
-
-    with raise_on_exception():
-        flow.run(executor=LocalExecutor())
+    if flow_state.is_failed():
+        raise RuntimeError('Prefect flow has failed.')
 
     # TODO(rousik): Once we convert rest of the pipeline to tasks, we no longer need
     # to pull the dataframes and rename them from here.
     eia_transformed_dfs = {}
-    for tf_task in flow.get_tasks(tags=[Stage.TRANSFORMED.name]):
+    for tf_task in flow.get_tasks(tags=[Stage.FINAL.name]):
         out = tf_task.output
         eia_transformed_dfs[f'{out.table_name}_{out.dataset}'] = tf_task.get_result(
         )
 
     logger.info(
         f'eia_transformed_dfs contains these tables: {sorted(eia_transformed_dfs)}')
-
-    # convert types..
-    eia_transformed_dfs = pudl.helpers.convert_dfs_dict_dtypes(
-        eia_transformed_dfs, 'eia')
 
     # TODO(rousik): convert this to tasks as well
     entities_dfs, eia_transformed_dfs = pudl.transform.eia.transform(

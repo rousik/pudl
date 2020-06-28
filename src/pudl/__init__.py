@@ -40,6 +40,7 @@ import pudl.transform.epacems
 import pudl.transform.epaipm
 import pudl.transform.ferc1
 import pudl.transform.ferc714
+import pudl.transform.generic
 # Data validation tools and test cases:
 import pudl.validate
 # Workflow management

@@ -133,15 +133,18 @@ class GenericExtractor(object):
     BLACKLISTED_PAGES = []
     """List of supported pages that should not be extracted."""
 
-    def __init__(self, data_dir, metadata=None):
+    def __init__(self, data_dir, years, metadata=None):
         """Create new extractor object and load metadata.
 
         Args:
             data_dir: Path to the data_dir to use when loading excel
               files from disk (passed to datastore).
+            years: list of years to extract.
         """
+        super().__init__()
         self._data_dir = data_dir
         self._metadata = metadata or self.METADATA
+        self._years = years
         logger.info(f'Using metadata for {self._metadata.get_dataset_name()}')
         if not self._metadata:
             raise NotImplementedError('self.METADATA must be set.')
@@ -168,19 +171,18 @@ class GenericExtractor(object):
         """Provide custom dtypes for given page and year."""
         return {}
 
-    def register_workflow_tasks(self, years):
+    def get_tasks(self):
         """Register all page extract calls as abstract tasks."""
-        # fcn = lambda: self.extract_page(self, page, years)
         for page in self.extractable_pages():
-            task.Registry.add_task(task.PudlTask(
+            yield task.PudlTask(
                 inputs=[],
                 output=task.PudlTableReference(
                     page, self._dataset_name, task.Stage.RAW),
-                function=lambda p=page, y=years: self.extract_page(p, y)))
+                function=lambda p=page: self.extract_page(p))
 
-    def extract_page(self, page, years):
+    def extract_page(self, page):
         df = pd.DataFrame()
-        for yr in years:
+        for yr in self._years:
             logger.info(
                 f'Loading dataframe for {self._dataset_name} {page} {yr}')
             newdata = pd.read_excel(
@@ -211,14 +213,13 @@ class GenericExtractor(object):
                 logger.info(f'Skipping blacklisted page {page}.')
         return result
 
-    def extract(self, years):
+    def extract(self):
         """Extracts dataframes.
 
         Returns dict where keys are page names and values are
         DataFrames containing data across given years.
         """
-        # TODO: should we run verify_years(?) here?
-        if not years:
+        if not self._years:
             logger.info(
                 f'No years given. Not extracting {self.DATSET} spreadsheet data.')
             return {}
@@ -226,7 +227,7 @@ class GenericExtractor(object):
         raw_dfs = {}
         for page in self.extractable_pages():
             raw_dfs[page] = self.process_final_page(
-                self.extract_page(self, page, years), page)
+                self.extract_page(page), page)
         return raw_dfs
 
     # TODO(rousik): load_excel_file should be either synchronized method or it
@@ -243,7 +244,7 @@ class GenericExtractor(object):
             self._file_cache[full_path] = pd.ExcelFile(full_path)
         return self._file_cache[full_path]
 
-    def verify_years(self, years):
+    def verify_years(self):
         """Validate that all files are availabe.
 
         Raises:
@@ -253,7 +254,7 @@ class GenericExtractor(object):
         for page in self._metadata.get_all_pages():
             if page in self.BLACKLISTED_PAGES:
                 continue
-            for yr in years:
+            for yr in self._years:
                 try:
                     self._get_file_path(yr, page)
                 except FileNotFoundError:
@@ -261,7 +262,8 @@ class GenericExtractor(object):
         if bad_years:
             raise FileNotFoundError(
                 f'Missing {self._dataset_name} files for years {bad_years}.')
-        bad_years = set(years).difference(pc.working_years[self._dataset_name])
+        bad_years = set(self._years).difference(
+            pc.working_years[self._dataset_name])
         if bad_years:
             raise IndexError(
                 f"{self._dataset_name} doesn't support years {bad_years}")

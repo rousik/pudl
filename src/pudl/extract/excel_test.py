@@ -5,7 +5,6 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
-
 import pudl.extract.excel as excel
 
 
@@ -111,7 +110,7 @@ class TestGenericExtractor(unittest.TestCase):
         """Verifies that read_excel method is called with expected arguments."""
         mock_read_excel.return_value = pd.DataFrame()
 
-        FakeExtractor('/blah').extract([2010, 2011])
+        FakeExtractor('/blah', [2010, 2011]).extract()
         expected_calls = [
             mock.call('books-2010', sheet_name=0, skiprows=0, dtype={}),
             mock.call('books-2011', sheet_name=0, skiprows=1, dtype={}),
@@ -123,7 +122,7 @@ class TestGenericExtractor(unittest.TestCase):
     @patch('pudl.extract.excel.pd.read_excel', _fake_data_frames)
     def test_resulting_dataframes(self):
         """Checks that pages across years are merged and columns are translated."""
-        dfs = FakeExtractor('/blah').extract([2010, 2011])
+        dfs = FakeExtractor('/blah', [2010, 2011]).extract()
         self.assertEqual(set(['books', 'boxes']), set(dfs.keys()))
         pd.testing.assert_frame_equal(
             pd.DataFrame(data={
@@ -143,7 +142,7 @@ class TestGenericExtractor(unittest.TestCase):
     def test_missing_columns_added(self, fake_reader):
         """Test that missing "description" column is added to final page."""
         extractor = FakeExtractor(
-            '/blah',
+            '/blah', [2010],
             metadata=FakeMetadata(
                 'fake',
                 first_page={
@@ -152,7 +151,7 @@ class TestGenericExtractor(unittest.TestCase):
                 }))
         fake_reader.return_value = pd.DataFrame(
             data={'orig_name': ['A'], 'orig_year': ['B']})
-        dfs = extractor.extract([2010])
+        dfs = extractor.extract()
         self.assertEqual(['first_page'], list(dfs.keys()))
         print(dfs['first_page'])
         pd.testing.assert_frame_equal(
@@ -161,5 +160,3 @@ class TestGenericExtractor(unittest.TestCase):
                 'name': ['A'], 'year': ['B']
             }).astype({'description': 'object'}),
             dfs['first_page'])
-
-    # TODO(rousik@gmail.com): test correct processor operation.

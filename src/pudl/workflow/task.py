@@ -1,8 +1,27 @@
-"""Task abstraction functions.
+"""Workflow task abstraction layer.
 
-This allows wrapping PUDL transformation into tasks that can be executed
-by a library of sorts.
+This module provides lightweight API for building table transformation tasks
+that can be passed to a worfklow automation library for execution.
+
+Table transformations are functions that take a certain number of pandas
+data frames holding table data and emits one panda data frame with results.
+
+Each table usually undergoes series of transformation steps that move the
+table between pre-defined stages.
+
+PudlTableTransformer is an object that is responsible for transforming
+a given table through the known stages.
 """
+
+# TODO(rousik): Get rid of some existing magic, such as:
+# - instead of relying on class-hierarchy, explicitly decorate classes
+#   that will do the transformations.
+# - possibly: explicitly indicate the table name given object is responsible
+#   for. Right now we do CamelCase to camel_case conversion which is a bit
+#   mysterious.
+# - Extractors should also be marked with "this makes tasks" annotation or
+#   object mixin, which should be used separately from PudlTableTransformer
+#   descendance.
 
 import logging
 import re
@@ -28,12 +47,16 @@ class Stage(Enum):
     ASSIGN_DTYPE = auto()
     TRANSFORMED = auto()
     FINAL = auto()
-    # TODO(rousik): dtype assignment happens both before transform and after
-    # transform
+    # TODO(rousik): do we want to provide documentation/description for
+    # these stages?
 
 
 class PudlTableReference(object):
-    """Pointer to a specific stage of a pudl table."""
+    """Instance of this class points to a pudl table in a specific stage.
+
+    Each table is uniquely identified by its dataset (eia860, eia923, ...),
+    the table name (e.g. generators) and stage (see Stage enum above).
+    """
 
     def __init__(self, table_name, dataset=None, stage=None):
         self.table_name = table_name
@@ -61,15 +84,6 @@ class PudlTableReference(object):
         """Returns string represenation of this reference."""
         return f'{self.dataset}/{self.table_name}:{self.stage.name}'
 
-    @staticmethod
-    def from_fq_name(fq_name):
-        """Returns reference instance from fully qualified name."""
-        # TODO(rousik): this is used to support legacy decorator. Kill that.
-        base, stage = fq_name.split(':')
-        ds, table = base.split('/')
-        stage = Stage[stage.upper()]
-        return PudlTableReference(table, ds, stage)
-
 
 class reads(object):
     """Decorator for indicating when additional PudlTableReferences are needed."""
@@ -93,8 +107,11 @@ class emits(object):
         fcn.emits_stage = self.stage
         return fcn
 
-# TODO(rousik): instead of relying on method names (brittle), use emits annotations
-# to find the table transformations.
+
+def transformer(cls):
+    """Mark the class for inclusion in the workflow."""
+    cls.is_table_transformer = True
+    return cls
 
 
 class PudlTableTransformer(object):
@@ -137,18 +154,22 @@ class PudlTableTransformer(object):
         return cls.table_ref(cls.get_table_name(), stage)
 
     @classmethod
-    def has_transformations(cls):
-        """Returns True if any methods annotated with @emits exist."""
-        return bool(cls.get_transformations())
+    def marked_as_transformer(cls):
+        """Returns True if this instance has been decorated with @transformer.
+
+        This decoration indicates that transformations within should be run
+        within the workflow.
+        """
+        return hasattr(cls, 'is_table_transformer')
 
     @classmethod
-    def get_subclasses_with_transformations(cls):
+    def get_transformer_subclasses(cls):
         """Returns all subclasses that have methods annotated with @emits."""
         res = set()
         for sc in cls.__subclasses__():
-            if sc.has_transformations():
+            if sc.marked_as_transformer():
                 res.add(sc)
-            res.update(sc.get_subclasses_with_transformations())
+            res.update(sc.get_transformer_subclasses())
         return res
 
     @classmethod
@@ -205,72 +226,5 @@ def fq_name(df_name, stage='raw', force_stage=False):
         return f'{base_name}:{stage}'
 
 
-def is_fq_name(name):
-    return re.match(r'\w+/\w+:\w+', name)
-
-
 PudlTask = namedtuple('PudlTask', ['inputs', 'output', 'function'])
 """Generic task for pudl dataframe transformations."""
-
-
-class DataFrameTaskDecorator(object):
-    """Single input single output transformer."""
-
-    def __init__(self, inputs=[], output=None):
-        assert output and is_fq_name(output), f'Invalid output: {output}'
-        assert inputs, 'Need at least one input'
-        for i in inputs:
-            assert is_fq_name(
-                i), f'Input {i} not fully qualified dataframe name.'
-        # Convert fq_names to PudlTableReferences
-        self.inputs = [PudlTableReference.from_fq_name(i) for i in inputs]
-        self.output = PudlTableReference.from_fq_name(output)
-
-    def __call__(self, fcn):
-        Registry.add_task(PudlTask(inputs=self.inputs,
-                                   output=self.output, function=fcn))
-        # TODO(rousik): we could consider wrapping the function in a simple wrapper
-        # that can pull raw/transformed inputs from first/second argument
-        # and set the transformed output in the second argument map.
-
-        # This way the old way of PUDL-ing would still work :-)
-        return fcn
-
-
-def transforms(df_name, output_stage='transformed', input_stage='raw'):
-    """Reads dataframe and emits dataframe with a given stage."""
-    return DataFrameTaskDecorator(
-        inputs=[fq_name(df_name, input_stage)],
-        output=fq_name(df_name, output_stage, force_stage=True))
-
-
-def transforms_single(in_df_name, out_df_name):
-    assert is_fq_name(in_df_name), f'{in_df_name} not fully qualified'
-    assert is_fq_name(out_df_name), f'{out_df_name} not fully qualified'
-    return DataFrameTaskDecorator(inputs=[in_df_name], output=out_df_name)
-
-
-def transforms_many(in_df_names, out_df_name, input_stage='raw', output_stage='transformed'):
-    assert type(in_df_names) == list, 'in_df_names needs to be list'
-    assert type(out_df_name) == str, 'out_f_name needs to be string'
-    fq_in = [fq_name(x, input_stage) for x in in_df_names]
-    fq_out = fq_name(out_df_name, output_stage)
-    return DataFrameTaskDecorator(inputs=fq_in, output=fq_out)
-
-
-class Registry(object):
-    _all_tasks = []
-
-    @classmethod
-    def add_task(cls, task):
-        cls._all_tasks.append(task)
-
-    @classmethod
-    def tasks(cls):
-        return list(cls._all_tasks)
-
-# In order to execute things we now need to:
-
-# - construct external inputs (from extract phase)
-# - construct luigi.Task objects for each abstract task in Registry
-# - initialize working dir for the etl run (random or given)
