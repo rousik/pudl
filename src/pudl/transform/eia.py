@@ -26,8 +26,165 @@ import pandas as pd
 
 import pudl
 import pudl.constants as pc
+from pudl.transform.entity import EntityExtractor
 
 logger = logging.getLogger(__name__)
+
+
+class Plants(EntityExtractor):
+    # TODO(rousik): plants is the only entity that contains latitude and longitude
+    # TODO(rousik): also, this entity needs to run _add_additional_epacems_plants and
+    # _add_timezone.
+    NAME = 'plants'
+    ID_COLUMNS = ['plant_id_eia']
+    STATIC_COLUMNS = [
+        'balancing_authority_code',
+        'balancing_authority_name',
+        'city',
+        'county',
+        'ferc_cogen_status',
+        'ferc_exempt_wholesale_generator',
+        'ferc_small_power_producer',
+        'grid_voltage_2_kv',
+        'grid_voltage_3_kv',
+        'grid_voltage_kv',
+        'iso_rto_code',
+        'latitude',
+        'longitude',
+        'nerc_region',
+        'plant_name_eia',
+        'primary_purpose_naics_id',
+        'sector_id',
+        'sector_name',
+        'state',
+        'street_address',
+        'zip_code',
+    ]
+    ANNUAL_COLUMNS = [
+        'ash_impoundment',
+        'ash_impoundment_lined',
+        'ash_impoundment_status',
+        'energy_storage',
+        'ferc_cogen_docket_no',
+        'ferc_exempt_wholesale_generator_docket_no',
+        'ferc_small_power_producer_docket_no',
+        'liquefied_natural_gas_storage',
+        'natural_gas_local_distribution_company',
+        'natural_gas_pipeline_name_1',
+        'natural_gas_pipeline_name_2',
+        'natural_gas_pipeline_name_3',
+        'natural_gas_storage',
+        'net_metering',
+        'pipeline_notes',
+        'regulatory_status_code',
+        'transmission_distribution_owner_id',
+        'transmission_distribution_owner_name',
+        'transmission_distribution_owner_state',
+        'utility_id_eia',
+        'water_source',
+    ]
+
+
+class Generators(EntityExtractor):
+    NAME = 'generators'
+    ID_COLUMNS = ['plant_id_eia', 'generator_id']
+
+    STATIC_COLUMNS = [
+        'associated_combined_heat_power',
+        'bypass_heat_recovery',
+        'duct_burners',
+        'fluidized_bed_tech',
+        'operating_date',
+        'operating_switch',
+        'original_planned_operating_date',
+        'other_combustion_tech',
+        'previously_canceled',
+        'prime_mover_code',
+        'pulverized_coal_tech',
+        'rto_iso_lmp_node_id',
+        'rto_iso_location_wholesale_reporting_id',
+        'solid_fuel_gasification',
+        'stoker_tech',
+        'subcritical_tech',
+        'supercritical_tech',
+        'topping_bottoming_code',
+        'ultrasupercritical_tech',
+    ]
+    ANNUAL_COLUMNS = [
+        'capacity_mw',
+        'carbon_capture',
+        'cofire_fuels',
+        'current_planned_operating_date',
+        'deliver_power_transgrid',
+        'energy_source_code_1',
+        'energy_source_code_2',
+        'energy_source_code_3',
+        'energy_source_code_4',
+        'energy_source_code_5',
+        'energy_source_code_6',
+        'fuel_type_code_pudl',
+        'minimum_load_mw',
+        'multiple_fuels',
+        'nameplate_power_factor',
+        'operational_status',
+        'operational_status_code',
+        'other_modifications_date',
+        'other_planned_modifications',
+        'ownership_code',
+        'planned_derate_date',
+        'planned_energy_source_code_1',
+        'planned_modifications',
+        'planned_net_summer_capacity_derate_mw',
+        'planned_net_summer_capacity_uprate_mw',
+        'planned_net_winter_capacity_derate_mw',
+        'planned_net_winter_capacity_uprate_mw',
+        'planned_new_capacity_mw',
+        'planned_new_prime_mover_code',
+        'planned_repower_date',
+        'planned_retirement_date',
+        'planned_uprate_date',
+        'retirement_date',
+        'startup_source_code_1',
+        'startup_source_code_2',
+        'startup_source_code_3',
+        'startup_source_code_4',
+        'summer_capacity_mw',
+        'summer_estimated_capability_mw',
+        'switch_oil_gas',
+        'syncronized_transmission_grid',
+        'technology_description',
+        'time_cold_shutdown_full_load_code',
+        'turbines_inverters_hydrokinetics',
+        'turbines_num',
+        'uprate_derate_completed_date',
+        'uprate_derate_during_year',
+        'utility_id_eia',
+        'winter_capacity_mw',
+        'winter_estimated_capability_mw',
+    ]
+
+
+class Utilities(EntityExtractor):
+    NAME = 'utilities'
+    ID_COLUMNS = ['utility_id_eia']
+    STATIC_COLUMNS = ['utility_name_eia', 'entity_type']
+    ANNUAL_COLUMNS = [
+        'city',
+        'plants_reported_asset_manager',
+        'plants_reported_operator',
+        'plants_reported_other_relationship'
+        'plants_reported_owner',
+        'state',
+        'street_address',
+        'zip_code',
+    ]
+    DTYPES = {'utility_id_eia': 'int64'}
+
+
+class Boilers(EntityExtractor):
+    NAME = 'boilers'
+    ID_COLUMNS = ['plant_id_eia', 'boiler_id']
+    STATIC_COLUMNS = ['prime_mover_code']
 
 
 def _occurrence_consistency(entity_id, compiled_df, col,
@@ -806,60 +963,57 @@ def _restrict_years(df,
     df = df[df.report_date.dt.year.isin(bga_years)]
     return df
 
+# Entity extraction consists of:
+# 1. mapped reading of all FINAL tables
+# 2. reduce method called on the results of (1)
+# 3. serialization of entity and annual dfs to disk
 
-def transform(eia_transformed_dfs,
-              eia923_years=pc.working_years['eia923'],
-              eia860_years=pc.working_years['eia860'],
-              debug=False):
-    """Creates DataFrames for EIA Entity tables and modifies EIA tables.
 
-    This function coordinates two main actions: generating the entity tables
-    via ``_harvesting()`` and generating the boiler generator associations via
-    ``_boiler_generator_assn()``.
+def add_entity_harvesting_to_flow(flow):
+    """Adds entity extraction tasks to preexisting flow."""
+    for entity in [Plants, Generators, Utilities, Boilers]:
+        entity.add_entity_extraction_tasks(flow)
 
-    There is also some removal of tables that are no longer needed after the
-    entity harvesting is finished.
 
-    Args:
-        eia_transformed_dfs (dict): a dictionary of table names (kays) and
-            transformed dataframes (values).
-        eia923_years (list): a list of years for EIA 923, must be continuous,
-            and include only working years.
-        eia860_years (list): a list of years for EIA 860, must be continuous,
-            and only include working years.
-        debug (bool): if true, informational columns will be added into
-            boiler_generator_assn
-
-    Returns:
-        tuple: two dictionaries having table names as keys and
-        dataframes as values for the entity tables transformed EIA dataframes
-
-    """
-    if not eia923_years and not eia860_years:
-        logger.info('Not ingesting EIA')
-        return None
-    # create the empty entities df to fill up
-    entities_dfs = {}
-
-    # for each of the entities, harvest the static and annual columns.
-    # the order of the entities matter! the
-    for entity in pc.entities.keys():
-        logger.info(f"Harvesting IDs & consistently static attributes "
-                    f"for EIA {entity}")
-
-        _harvesting(entity, eia_transformed_dfs, entities_dfs,
-                    debug=debug)
-
-    _boiler_generator_assn(eia_transformed_dfs,
-                           eia923_years=eia923_years,
-                           eia860_years=eia860_years,
-                           debug=debug)
-
-    # get rid of the original annual dfs in the transformed dict
-    remove = ['generators', 'plants', 'utilities']
-    for entity in remove:
-        eia_transformed_dfs[f'{entity}_eia860'] = eia_transformed_dfs.pop(f'{entity}_annual_eia',
-                                                                          f'{entity}_annual_eia')
-    # remove the boilers annual table bc it has no columns
-    eia_transformed_dfs.pop('boilers_annual_eia',)
-    return entities_dfs, eia_transformed_dfs
+# def transform(eia_transformed_dfs,
+#              eia923_years=pc.working_years['eia923'],
+#              eia860_years=pc.working_years['eia860'],
+#              debug=False):
+#    """Creates DataFrames for EIA Entity tables and modifies EIA tables.
+#
+#    This function coordinates two main actions: generating the entity tables
+#    via ``_harvesting()`` and generating the boiler generator associations via
+#    ``_boiler_generator_assn()``.
+#
+#    There is also some removal of tables that are no longer needed after the
+#    entity harvesting is finished.
+#
+#    Args:
+#        eia_transformed_dfs (dict): a dictionary of table names (kays) and
+#            transformed dataframes (values).
+#        eia923_years (list): a list of years for EIA 923, must be continuous,
+#            and include only working years.
+#        eia860_years (list): a list of years for EIA 860, must be continuous,
+#            and only include working years.
+#        debug (bool): if true, informational columns will be added into
+#            boiler_generator_assn
+#
+#    Returns:
+#        tuple: two dictionaries having table names as keys and
+#        dataframes as values for the entity tables transformed EIA dataframes
+#
+#    """
+#    # TODO(rousik): refactor _boiler_generator_assn(...)
+#    #_boiler_generator_assn(eia_transformed_dfs,
+#    #                       eia923_years=eia923_years,
+#    #                       eia860_years=eia860_years,
+#    #                       debug=debug)
+#
+#    # TODO(rousik): figure out what the removal of the dfs is all about here
+#    # remove = ['generators', 'plants', 'utilities']
+#    # for entity in remove:
+#    #     eia_transformed_dfs[f'{entity}_eia860'] = eia_transformed_dfs.pop(f'{entity}_annual_eia',
+#                                                                          f'{entity}_annual_eia')
+#    # remove the boilers annual table bc it has no columns
+#    # eia_transformed_dfs.pop('boilers_annual_eia',)
+#    return entities_dfs, eia_transformed_dfs

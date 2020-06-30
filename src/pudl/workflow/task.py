@@ -47,6 +47,7 @@ class Stage(Enum):
     ASSIGN_DTYPE = auto()
     TRANSFORMED = auto()
     FINAL = auto()
+    ENTITIES_REMOVED = auto()
     # TODO(rousik): do we want to provide documentation/description for
     # these stages?
 

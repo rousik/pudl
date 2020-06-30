@@ -3,6 +3,7 @@
 import logging
 
 import pudl
+import pudl.transform.eia as eia
 import pudl.workflow.task as task
 from pudl.workflow.task import Stage, emits
 
@@ -107,3 +108,15 @@ class TableTransformer(task.PudlTableTransformer):
         # TODO(rousik): the above eiaNNN --> eia conversion is dirty, figure out
         # a better way to do this.
         return pudl.helpers.convert_cols_dtypes(df, ds, cls.get_table_name())
+
+    @classmethod
+    @emits(Stage.ENTITIES_REMOVED)
+    def remove_entities(cls, df):
+        # TODO(rousik): the entity objects might very well be moved out of transform/eia.py
+        # and it might be worth keeping list of existing entity objects somewhere (or build it
+        # automatically)
+        known_entities = [eia.Plants, eia.Generators,
+                          eia.Utilities, eia.Boilers]
+        for entity in known_entities:
+            df = entity.drop_entity_columns(df)
+        return df

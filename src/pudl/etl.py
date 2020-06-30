@@ -18,12 +18,12 @@ data from:
 """
 
 import logging
-import os
 import pathlib
 import time
 import uuid
 
 import pandas as pd
+
 import pudl
 import pudl.constants as pc
 import pudl.workflow.prefect
@@ -213,15 +213,17 @@ def _etl_eia(etl_params, datapkg_dir, pudl_settings):
     flow = pudl.workflow.prefect.build_flow(
         pudl_settings["temp_files"],
         extractors=extractors)
+    pudl.transform.eia.add_entity_harvesting_to_flow(flow)
+    flow.visualize()
     # --run_id $stuff can be used to fix the id of the run and ensure that pre-existing
     # temp files stored in temp_files directory will be reused.
 
     # TODO(rousik): we might want to add extra flag that will kill or keep temp files
     # for specific stages only.
     flow_state = flow.run(executor=LocalExecutor())
-    flow.visualize(flow_state, format='svg',
-                   filename=os.path.join(pudl_settings["temp_files"], "prefect-run.svg"))
-    flow.visualize(flow_state)
+    # flow.visualize(flow_state, format='svg',
+    #               filename=os.path.join(pudl_settings["temp_files"], "prefect-run.svg"))
+    # flow.visualize(flow_state)
 
     if flow_state.is_failed():
         raise RuntimeError('Prefect flow has failed.')
