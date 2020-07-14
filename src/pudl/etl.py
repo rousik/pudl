@@ -23,11 +23,11 @@ import time
 import uuid
 
 import pandas as pd
-
 import pudl
 import pudl.constants as pc
 import pudl.workflow.prefect
 from prefect.engine.executors import LocalExecutor
+from pudl.workflow import persistence
 from pudl.workflow.task import Stage
 
 logger = logging.getLogger(__name__)
@@ -210,10 +210,9 @@ def _etl_eia(etl_params, datapkg_dir, pudl_settings):
     ]
 
     # eia860 and eia923 transform are expressed as tasks.
-    flow = pudl.workflow.prefect.build_flow(
-        pudl_settings["temp_files"],
-        extractors=extractors)
-    pudl.transform.eia.add_entity_harvesting_to_flow(flow)
+    pickling = persistence.Pickle(pudl_settings["temp_files"])
+    flow = pudl.workflow.prefect.build_flow(pickling, extractors=extractors)
+    pudl.transform.eia.add_entity_harvesting_to_flow(flow, pickling)
     flow.visualize()
     # --run_id $stuff can be used to fix the id of the run and ensure that pre-existing
     # temp files stored in temp_files directory will be reused.

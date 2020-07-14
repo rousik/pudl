@@ -3,16 +3,59 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
-
 import pudl.constants as pc
 from prefect import Task
-from pudl.workflow.task import Stage
+from pudl.workflow.task import PudlTableReference, Stage
 
 logger = logging.getLogger(__name__)
 
 
-# TODO(rousik): this actually turns into two prefect tasks. One that maps over
-# tables, second one that will reduce the results into the entity dfs.
+class EntityExtractionMapper(Task):
+    """Extracts rows of entity-relevant columns from given dataframe."""
+
+    def __init__(self, entity_extractor_class, **kwargs):
+        self.extractor = entity_extractor_class()
+        name = self.extractor.NAME
+        super().__init__(name=f'{name}: extract entity rows', **kwargs)
+
+    def run(self, df, name='undef'):
+        return self.extractor.extract_entity_rows(df, name)
+
+
+class EntityExtractionReduce(Task):
+    """Combines entity-relevant rows into annual and entity dataframes."""
+
+    def __init__(self, entity_extractor_class, df_persistence, **kwargs):
+        self.extractor = entity_extractor_class()
+        self.df_persistence = df_persistence
+        name = self.extractor.NAME
+        # TODO(rousik): remove hardcoded eia dataset
+        self.annual_ref = PudlTableReference(
+            f'{name}_annual_eia', dataset='eia', stage=Stage.EXTRACTED_ENTITY)
+        self.entity_ref = PudlTableReference(
+            f'{name}_entity_eia', dataset='eia', stage=Stage.EXTRACTED_ENTITY)
+        super().__init__(name=f'{name}: build entity frames', **kwargs)
+
+    def run(self, entity_row_dfs):
+        if (self.df_persistence.exists(self.annual_ref)
+                and self.df_persistence.exists(self.entity_ref)):
+            return (self.df_persistence.get(self.annual_ref),
+                    self.df_persistence.get(self.entity_ref))
+
+        entity_df, annual_df = self.extractor.harvest_entity(
+            entity_row_dfs)
+        logger.info(
+            f'{self.extractor.NAME}: extracted {annual_df.size} annual entities.')
+        # TODO(rousik): skip creating dataframes if they are empty or column-less
+        # TODO(rousik): write consistency data to disk as well
+        consistency_ref = PudlTableReference(
+            '{self.extractor.NAME}_entity_consistency', dataset='eia',
+            stage=Stage.DEBUG)
+        self.df_persistence.set(consistency_ref, self.extractor.consistency)
+        self.df_persistence.set(self.annual_ref, annual_df)
+        self.df_persistence.set(self.entity_ref, entity_df)
+        return (annual_df.copy(), entity_df.copy())
+
 
 class EntityExtractor(object):
     """Extracts entities from given list of input tables.
@@ -58,14 +101,14 @@ class EntityExtractor(object):
             cols.append('report_date')
         return cols
 
-    @classmethod
+    @ classmethod
     def drop_entity_columns(cls, df):
         """Drop STATIC and ANNUAL entity columns from df."""
         candidates = list(cls.STATIC_COLUMNS) + list(cls.ANNUAL_COLUMNS)
         logger.info(f'Candidate columns for {cls.NAME} is {candidates}')
         return df.drop(columns=[col for col in candidates if col in df.columns])
 
-    @classmethod
+    @ classmethod
     def contains_entity(cls, df):
         """Returns True if df contains entity (it has ID_COLUMNS)."""
         base = set(cls.ID_COLUMNS)
@@ -104,6 +147,7 @@ class EntityExtractor(object):
     @classmethod
     def get_combined_entity_rows(cls, entity_rows):
         """Returns single dataframe constructed from self.entity_rows."""
+        entity_rows = [df for df in entity_rows if df is not None]
         compiled_df = pd.concat(entity_rows, axis=0,
                                 ignore_index=True, sort=True)
         # strip month and date from the date so we can have annual records
@@ -289,48 +333,15 @@ class EntityExtractor(object):
         self.annual_df = annual_df
         return (self.entity_df, self.annual_df)
 
-    def get_entity_df(self):
-        # TODO(rousik): possibly check if entity_df is defined here and throw exception if it
-        # is not.
-        return self.entity_df.copy()
-
-    def get_annual_df(self):
-        return self.annual_df.copy()
-
-    class EntityExtractionMapper(Task):
-        def __init__(self, entity_extractor_class, **kwargs):
-            self.extractor = entity_extractor_class()
-            name = self.extractor.NAME
-            super().__init__(name=f'{name}: extract entity rows', **kwargs)
-
-        def run(self, df, name='undef'):
-            return self.extractor.extract_entity_rows(df, name)
-
-    class EntityExtractionReduce(Task):
-        def __init__(self, entity_extractor_class, **kwargs):
-            self.extractor = entity_extractor_class()
-            name = self.extractor.NAME
-            super().__init__(name=f'{name}: build entity frames', **kwargs)
-
-        def run(self, entity_row_dfs):
-            entity_df, annual_df = self.extractor.harvest_entity(
-                entity_row_dfs)
-            # TODO(rousik): we can also dump the consistency data to disk for debugging
-            logger.info(
-                f'{self.extractor.NAME}: extracted {entity_df.size} static entities.')
-            logger.info(
-                f'{self.extractor.NAME}: extracted {annual_df.size} annual entities.')
-            # TODO(rousik): persist these to disk
-
     @classmethod
-    def add_entity_extraction_tasks(cls, flow):
+    def add_entity_extraction_tasks(cls, flow, df_persistence):
         """Adds the entity extraction tasks into the flow.
 
         It will pull tasks that emit Stage.FINAL tables and use
         these as inputs for the entity extraction.
         """
-        mapper = cls.EntityExtractionMapper(cls)
-        reducer = cls.EntityExtractionReduce(cls)
+        mapper = EntityExtractionMapper(cls)
+        reducer = EntityExtractionReduce(cls, df_persistence)
         with flow:
             final_tables = flow.get_tasks(tags=[Stage.FINAL.name])
             table_names = [ft.name for ft in final_tables]

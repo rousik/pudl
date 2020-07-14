@@ -23,7 +23,6 @@ import logging
 import networkx as nx
 import numpy as np
 import pandas as pd
-
 import pudl
 import pudl.constants as pc
 from pudl.transform.entity import EntityExtractor
@@ -969,10 +968,10 @@ def _restrict_years(df,
 # 3. serialization of entity and annual dfs to disk
 
 
-def add_entity_harvesting_to_flow(flow):
+def add_entity_harvesting_to_flow(flow, df_persistence):
     """Adds entity extraction tasks to preexisting flow."""
     for entity in [Plants, Generators, Utilities, Boilers]:
-        entity.add_entity_extraction_tasks(flow)
+        entity.add_entity_extraction_tasks(flow, df_persistence)
 
 
 # def transform(eia_transformed_dfs,

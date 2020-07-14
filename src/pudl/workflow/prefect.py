@@ -1,7 +1,7 @@
 import logging
 
 import prefect
-from pudl.workflow import persistence, task
+from pudl.workflow import task
 
 logger = logging.getLogger(__name__)
 
@@ -73,9 +73,8 @@ def get_task_obj(num_arguments):
     return classes[num_arguments]
 
 
-def build_flow(tmp_dir, task_filter=None, extractors=[]):
+def build_flow(df_persistence, task_filter=None, extractors=[]):
     prefect_tasks = {}  # output -> prefect_task
-    df_persistence = persistence.Pickle(tmp_dir)
 
     # Extractor instances are explicitly passed in and will be used to
     # generate list of tasks.

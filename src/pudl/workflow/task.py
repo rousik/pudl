@@ -47,7 +47,10 @@ class Stage(Enum):
     ASSIGN_DTYPE = auto()
     TRANSFORMED = auto()
     FINAL = auto()
+    EXTRACTED_ENTITY = auto()
     ENTITIES_REMOVED = auto()
+
+    DEBUG = auto()
     # TODO(rousik): do we want to provide documentation/description for
     # these stages?
 
@@ -63,7 +66,7 @@ class PudlTableReference(object):
         self.table_name = table_name
         self.dataset = dataset
         self.stage = stage
-        if dataset not in pc.data_sources:
+        if dataset not in ['eia'] + list(pc.data_sources):
             raise KeyError(
                 f'Unsupported data_source {dataset} used when creating tableref.')
 
