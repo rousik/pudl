@@ -21,7 +21,7 @@ class Extractor(excel.GenericExtractor):
 
     PAGE_GLOBS = {
         'boiler_generator_assn': '*EnviroAssoc*',
-        'utility': '*Utility*',
+        'utilities': '*Utility*',
         'plants': '*Plant*',
         'generator_existing': '*Generat*',
         'generator_proposed': '*Generat*',

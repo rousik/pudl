@@ -261,12 +261,6 @@ class BoilerGeneratorAssn(Tf):
 
 @transformer
 class Utilities(Tf):
-    @reads(Tf.table_ref('utility'))
-    @emits(Stage.TIDY)
-    def tidy(df):
-        """Pulls utility:RAW into utilities:TIDY."""
-        return df
-
     COLUMN_CLEANUP_OPERATIONS = [
         (lambda col: col.str.upper().replace({
             'QB': 'QC',  # Wrong abbreviation for Quebec
