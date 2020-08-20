@@ -265,7 +265,7 @@ class Utilities(Tf):
         (lambda col: col.str.upper().replace({
             'QB': 'QC',  # Wrong abbreviation for Quebec
             'Y': 'NY',  # Typo
-        }), 'state'),
+        }), 'utility_state'),
         (pudl.helpers.convert_to_boolean, [
             'plants_reported_owner',
             'plants_reported_operator',

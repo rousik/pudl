@@ -83,6 +83,12 @@ class Plants(EntityExtractor):
         'water_source',
     ]
 
+    def harvest_entity(self, entity_rows_dfs):
+        annual_df, entity_df = super(self).harvest_entity(entity_rows_dfs)
+        entity_df = _add_additional_epacems_plants(entity_df)
+        entity_df = _add_timezone(entity_df)
+        return annual_df, entity_df
+
 
 class Generators(EntityExtractor):
     NAME = 'generators'
@@ -168,14 +174,14 @@ class Utilities(EntityExtractor):
     ID_COLUMNS = ['utility_id_eia']
     STATIC_COLUMNS = ['utility_name_eia', 'entity_type']
     ANNUAL_COLUMNS = [
-        'city',
+        'utility_city',
         'plants_reported_asset_manager',
         'plants_reported_operator',
-        'plants_reported_other_relationship'
+        'plants_reported_other_relationship',
         'plants_reported_owner',
-        'state',
-        'street_address',
-        'zip_code',
+        'utility_state',
+        'utility_street_address',
+        'utility_zip_code',
     ]
     DTYPES = {'utility_id_eia': 'int64'}
 

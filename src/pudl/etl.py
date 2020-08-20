@@ -230,20 +230,19 @@ def _etl_eia(etl_params, datapkg_dir, pudl_settings):
     # TODO(rousik): Once we convert rest of the pipeline to tasks, we no longer need
     # to pull the dataframes and rename them from here.
     eia_transformed_dfs = {}
-    for tf_task in flow.get_tasks(tags=[Stage.FINAL.name]):
+    entities_dfs = {}
+    for tf_task in flow.get_tasks(tags=[Stage.ENTITIES_REMOVED.name]):
         out = tf_task.output
+        # TODO(rousik): skip hollow tables w/o meaningful data
         eia_transformed_dfs[f'{out.table_name}_{out.dataset}'] = tf_task.get_result(
         )
 
-    logger.info(
-        f'eia_transformed_dfs contains these tables: {sorted(eia_transformed_dfs)}')
+    for tf_task in flow.get_tasks(tags=[Stage.EXTRACTED_ENTITY.name]):
+        out = tf_task.output
+        entities_dfs[f'{out.table_name}_{out.dataset}'] = tf_task.get_result()
 
-    # TODO(rousik): convert this to tasks as well
-    entities_dfs, eia_transformed_dfs = pudl.transform.eia.transform(
-        eia_transformed_dfs,
-        eia923_years=eia923_years,
-        eia860_years=eia860_years
-    )
+    # TODO(rousik): verify if convert_dfs_dict_dtypes need to be applied here.
+
     # convert types..
     entities_dfs = pudl.helpers.convert_dfs_dict_dtypes(entities_dfs, 'eia')
 

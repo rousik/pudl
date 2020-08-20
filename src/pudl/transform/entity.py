@@ -49,7 +49,7 @@ class EntityExtractionReduce(Task):
         # TODO(rousik): skip creating dataframes if they are empty or column-less
         # TODO(rousik): write consistency data to disk as well
         consistency_ref = PudlTableReference(
-            '{self.extractor.NAME}_entity_consistency', dataset='eia',
+            f'{self.extractor.NAME}_entity_consistency', dataset='eia',
             stage=Stage.DEBUG)
         self.df_persistence.set(consistency_ref, self.extractor.consistency)
         self.df_persistence.set(self.annual_ref, annual_df)
@@ -237,6 +237,11 @@ class EntityExtractor(object):
         # We assume that extract_entity_rows has been already called.
         compiled_df = self.get_combined_entity_rows(entity_rows_dfs)
 
+        # Debug print input tables for this entity
+        input_tables = ', '.join(sorted(compiled_df.table.unique()))
+        logger.info(
+            f'Entity {self.NAME} extracted from the following tables: {input_tables}')
+
         # compile annual ids
         annual_id_df = compiled_df[
             ['report_date'] + self.ID_COLUMNS].copy().drop_duplicates()
@@ -316,7 +321,7 @@ class EntityExtractor(object):
                 )
                 if ratio < 0.9:
                     raise AssertionError(
-                        f'Harvesting of {col} is too inconsistent at {ratio:.3}.')
+                        f'Harvesting of {col} for entity {self.NAME} is too inconsistent at {ratio:.3}.')
             # add to a small df to be used in order to print out the ratio of
             # consistent records
             self.consistency = self.consistency.append({
